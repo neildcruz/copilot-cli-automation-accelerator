@@ -1,0 +1,42 @@
+{
+  "mcpServers": {
+    "file-analyzer": {
+      "type": "local",
+      "command": "python",
+      "args": ["scripts/file-analyzer.py"],
+      "tools": ["analyze_files", "count_lines", "detect_languages"],
+      "env": {
+        "ANALYSIS_DEPTH": "${ANALYSIS_DEPTH:-standard}",
+        "OUTPUT_FORMAT": "json"
+      }
+    },
+    "github-integration": {
+      "type": "http",
+      "url": "https://api.github.com/mcp",
+      "headers": {
+        "Authorization": "Bearer ${GITHUB_TOKEN}",
+        "Accept": "application/vnd.github.v3+json"
+      },
+      "tools": ["*"]
+    },
+    "database-tools": {
+      "type": "local",
+      "command": "node",
+      "args": ["tools/database-mcp.js", "--config", "${DB_CONFIG_FILE:-config/db.json}"],
+      "tools": ["query_schema", "analyze_performance", "check_migrations"],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}",
+        "DB_TIMEOUT": "${DB_TIMEOUT:-30000}"
+      }
+    },
+    "api-validator": {
+      "type": "sse",
+      "url": "${API_VALIDATOR_URL:-https://validator.example.com/mcp}",
+      "headers": {
+        "Authorization": "Bearer ${API_VALIDATOR_TOKEN}",
+        "X-Validation-Level": "strict"
+      },
+      "tools": ["validate_openapi", "check_endpoints", "test_responses"]
+    }
+  }
+}
