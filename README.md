@@ -145,7 +145,7 @@ This automation suite is designed to be modular and extensible. Each component f
 ### Local Automation
 - **Node.js 20+** - Required for Copilot CLI
 - **GitHub Copilot CLI** - Auto-installed by default
-- **GitHub Authentication** - `gh auth login` or `GITHUB_TOKEN`
+- **GitHub Authentication** - GitHub Personal Access Token, `gh auth login`, or environment variables
 - **Platform**: Linux, macOS, or Windows with PowerShell
 
 ---

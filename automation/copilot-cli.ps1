@@ -6,6 +6,7 @@ param(
     [string]$Config = "copilot-cli.properties",
     [string]$Prompt = "",
     [string]$SystemPrompt = "",
+    [string]$GithubToken = "",
     [string]$Model = "claude-sonnet-4.5",
     [string]$AutoInstallCli = "true",
     [string]$McpConfig = "",
@@ -41,9 +42,10 @@ GitHub Copilot CLI Wrapper Script (PowerShell)
 Usage: .\copilot-cli.ps1 [OPTIONS]
 
 OPTIONS:
-    -Config FILE                    Configuration properties file (default: copilot-cli.properties)
+    -Config FILE                   Configuration properties file (default: copilot-cli.properties)
     -Prompt TEXT                   The prompt to execute with Copilot CLI (required)
     -SystemPrompt TEXT             System prompt with guidelines to be emphasized and followed
+    -GithubToken TOKEN             GitHub Personal Access Token for authentication
     -Model MODEL                   AI model to use (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
     -AutoInstallCli BOOL           Automatically install Copilot CLI if not found (true/false, default: true)
     -McpConfig TEXT                MCP server configuration as JSON string
@@ -70,6 +72,9 @@ EXAMPLES:
     # With system prompt for guidelines
     .\copilot-cli.ps1 -Prompt "Review the code" -SystemPrompt "Focus on security and performance issues only"
     
+    # With GitHub token authentication
+    .\copilot-cli.ps1 -Prompt "Review the code" -GithubToken "ghp_xxxxxxxxxxxxxxxxxxxx"
+    
     # Using custom configuration file
     .\copilot-cli.ps1 -Config "my-config.properties" -Prompt "Analyze security"
     
@@ -78,6 +83,14 @@ EXAMPLES:
     
     # Dry run to see generated command
     .\copilot-cli.ps1 -Prompt "Test" -DryRun
+
+AUTHENTICATION:
+    GitHub Copilot CLI requires authentication via one of these methods (in order of precedence):
+    1. -GithubToken command line parameter
+    2. github.token in properties file  
+    3. GH_TOKEN environment variable
+    4. GITHUB_TOKEN environment variable
+    5. Existing GitHub CLI authentication (gh auth login)
 
 CONFIGURATION FILE:
     Create a .properties file with key=value pairs for any option.
@@ -126,7 +139,11 @@ function Load-Config {
                 $value = $matches[2].Trim()
                 
                 # Remove quotes if present
-                $value = $value -replace '^["\']|["\']$', ''
+                if ($value.StartsWith('"') -and $value.EndsWith('"')) {
+                    $value = $value.Substring(1, $value.Length - 2)
+                } elseif ($value.StartsWith("'") -and $value.EndsWith("'")) {
+                    $value = $value.Substring(1, $value.Length - 2)
+                }
                 $config[$key] = $value
             }
         }
@@ -137,6 +154,9 @@ function Load-Config {
         }
         if ($config.ContainsKey("system.prompt") -and [string]::IsNullOrEmpty($script:SystemPrompt)) {
             $script:SystemPrompt = $config["system.prompt"]
+        }
+        if ($config.ContainsKey("github.token") -and [string]::IsNullOrEmpty($script:GithubToken)) {
+            $script:GithubToken = $config["github.token"]
         }
         if ($config.ContainsKey("mcp.config") -and [string]::IsNullOrEmpty($script:McpConfig)) {
             $script:McpConfig = $config["mcp.config"]
@@ -226,13 +246,41 @@ function Test-Dependencies {
             Write-Log "Running: npm install -g @github/copilot@latest"
             try {
                 npm install -g @github/copilot@latest
-                Write-Host "✓ GitHub Copilot CLI installed successfully" -ForegroundColor Green
+                Write-Host "[OK] GitHub Copilot CLI installed successfully" -ForegroundColor Green
             } catch {
                 throw "Failed to install GitHub Copilot CLI. Try installing manually: npm install -g @github/copilot"
             }
         } else {
             throw "GitHub Copilot CLI is not installed. Install with: npm install -g @github/copilot or enable auto-install with: -AutoInstallCli true"
         }
+    }
+}
+
+# Function to setup GitHub authentication
+function Set-GitHubAuth {
+    Write-Log "Setting up GitHub authentication..."
+    
+    # Determine which token to use (in order of precedence)
+    $token = ""
+    
+    if (-not [string]::IsNullOrEmpty($script:GithubToken)) {
+        $token = $script:GithubToken
+        Write-Log "Using GitHub token from command line parameter"
+    } elseif (-not [string]::IsNullOrEmpty($env:GH_TOKEN)) {
+        $token = $env:GH_TOKEN
+        Write-Log "Using GitHub token from GH_TOKEN environment variable"
+    } elseif (-not [string]::IsNullOrEmpty($env:GITHUB_TOKEN)) {
+        $token = $env:GITHUB_TOKEN
+        Write-Log "Using GitHub token from GITHUB_TOKEN environment variable"
+    }
+    
+    # Set the environment variable for Copilot CLI if we have a token
+    if (-not [string]::IsNullOrEmpty($token)) {
+        $env:GH_TOKEN = $token
+        $env:GITHUB_TOKEN = $token
+        Write-Log "GitHub token configured for authentication"
+    } else {
+        Write-Log "No GitHub token provided, relying on existing GitHub CLI authentication"
     }
 }
 
@@ -269,9 +317,8 @@ function Build-CopilotCommand {
         $cmd += " --allow-all-tools"
     }
     
-    if ($AllowAllPaths -eq "true") {
-        $cmd += " --allow-all-paths"
-    }
+    # Always add --allow-all-paths flag
+    $cmd += " --allow-all-paths"
     
     # Add allowed tools
     if (-not [string]::IsNullOrEmpty($AllowedTools)) {
@@ -364,8 +411,16 @@ try {
         throw "Prompt is required. Use -Prompt parameter or set prompt in config file."
     }
     
+    # Print current working directory
+    $currentDir = Get-Location
+    Write-Host "Working directory: $currentDir" -ForegroundColor Cyan
+    Write-Log "Current working directory: $currentDir"
+    
     # Check dependencies
     Test-Dependencies
+    
+    # Setup GitHub authentication
+    Set-GitHubAuth
     
     # Validate MCP configuration if provided
     if (-not [string]::IsNullOrEmpty($McpConfig)) {
@@ -379,6 +434,8 @@ try {
             throw "Working directory '$WorkingDirectory' does not exist"
         }
         Set-Location $WorkingDirectory
+        $newDir = Get-Location
+        Write-Host "Changed working directory to: $newDir" -ForegroundColor Cyan
     }
     
     # Build command
@@ -396,25 +453,29 @@ try {
     # Execute the command with timeout
     Write-Log "Executing Copilot CLI command..."
     
+    # Get the current location to pass to the job
+    $currentLocation = Get-Location
+    
     $job = Start-Job -ScriptBlock {
-        param($cmd)
+        param($cmd, $workDir)
+        Set-Location $workDir
         Invoke-Expression $cmd
-    } -ArgumentList $copilotCmd
+    } -ArgumentList $copilotCmd, $currentLocation
     
     $completed = Wait-Job -Job $job -Timeout ($TimeoutMinutes * 60)
     
     if ($completed) {
-        Receive-Job -Job $job
-        Remove-Job -Job $job
+        Receive-Job -Job $job -ErrorAction SilentlyContinue
+        Remove-Job -Job $job -Force
         Write-Host "Copilot CLI execution completed successfully" -ForegroundColor Green
     } else {
         Stop-Job -Job $job
-        Remove-Job -Job $job
+        Remove-Job -Job $job -Force
         throw "Copilot CLI execution timed out after $TimeoutMinutes minutes"
     }
     
 } catch {
-    Write-Error "Error: $($_.Exception.Message)"
+    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 } finally {
     Cleanup

@@ -11,6 +11,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/copilot-cli.properties"
 PROMPT=""
 SYSTEM_PROMPT=""
+GITHUB_TOKEN=""
 MCP_CONFIG=""
 MCP_CONFIG_FILE=""
 COPILOT_MODEL="claude-sonnet-4.5"
@@ -41,6 +42,7 @@ OPTIONS:
     -c, --config FILE               Configuration properties file (default: copilot-cli.properties)
     -p, --prompt TEXT              The prompt to execute with Copilot CLI (required)
     -s, --system-prompt TEXT       System prompt with guidelines to be emphasized and followed
+    -t, --github-token TOKEN       GitHub Personal Access Token for authentication
     -m, --model MODEL              AI model to use (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
     --auto-install-cli BOOL        Automatically install Copilot CLI if not found (true/false, default: true)
     --mcp-config TEXT              MCP server configuration as JSON string
@@ -67,6 +69,9 @@ EXAMPLES:
     # With system prompt for guidelines
     $0 --prompt "Review the code" --system-prompt "Focus on security and performance issues only"
     
+    # With GitHub token authentication
+    $0 --prompt "Review the code" --github-token "ghp_xxxxxxxxxxxxxxxxxxxx"
+    
     # Using custom configuration file
     $0 --config my-config.properties --prompt "Analyze security"
     
@@ -75,6 +80,14 @@ EXAMPLES:
     
     # Dry run to see generated command
     $0 --prompt "Test" --dry-run
+
+AUTHENTICATION:
+    GitHub Copilot CLI requires authentication via one of these methods (in order of precedence):
+    1. --github-token command line argument
+    2. github.token in properties file  
+    3. GH_TOKEN environment variable
+    4. GITHUB_TOKEN environment variable
+    5. Existing GitHub CLI authentication (gh auth login)
 
 CONFIGURATION FILE:
     Create a .properties file with key=value pairs for any option.
@@ -124,6 +137,7 @@ load_config() {
             case "$key" in
                 prompt) PROMPT="$value" ;;
                 system.prompt) SYSTEM_PROMPT="$value" ;;
+                github.token) GITHUB_TOKEN="$value" ;;
                 mcp.config) MCP_CONFIG="$value" ;;
                 mcp.config.file) MCP_CONFIG_FILE="$value" ;;
                 copilot.model) COPILOT_MODEL="$value" ;;
@@ -196,6 +210,34 @@ check_dependencies() {
     fi
 }
 
+# Function to setup GitHub authentication
+setup_github_auth() {
+    log "Setting up GitHub authentication..."
+    
+    # Determine which token to use (in order of precedence)
+    local token=""
+    
+    if [[ -n "$GITHUB_TOKEN" ]]; then
+        token="$GITHUB_TOKEN"
+        log "Using GitHub token from command line argument"
+    elif [[ -n "$GH_TOKEN" ]]; then
+        token="$GH_TOKEN"
+        log "Using GitHub token from GH_TOKEN environment variable"
+    elif [[ -n "$GITHUB_TOKEN" ]]; then
+        token="$GITHUB_TOKEN"
+        log "Using GitHub token from GITHUB_TOKEN environment variable"
+    fi
+    
+    # Set the environment variable for Copilot CLI if we have a token
+    if [[ -n "$token" ]]; then
+        export GH_TOKEN="$token"
+        export GITHUB_TOKEN="$token"
+        log "GitHub token configured for authentication"
+    else
+        log "No GitHub token provided, relying on existing GitHub CLI authentication"
+    fi
+}
+
 # Function to validate MCP configuration
 validate_mcp_config() {
     local config="$1"
@@ -230,9 +272,8 @@ $PROMPT"
         cmd="$cmd --allow-all-tools"
     fi
     
-    if [[ "$ALLOW_ALL_PATHS" == "true" ]]; then
-        cmd="$cmd --allow-all-paths"
-    fi
+    # Always add --allow-all-paths flag
+    cmd="$cmd --allow-all-paths"
     
     # Add allowed tools
     if [[ -n "$ALLOWED_TOOLS" ]]; then
@@ -329,6 +370,10 @@ while [[ $# -gt 0 ]]; do
             SYSTEM_PROMPT="$2"
             shift 2
             ;;
+        -t|--github-token)
+            GITHUB_TOKEN="$2"
+            shift 2
+            ;;
         -m|--model)
             COPILOT_MODEL="$2"
             shift 2
@@ -421,6 +466,9 @@ fi
 # Check dependencies
 check_dependencies
 
+# Setup GitHub authentication
+setup_github_auth
+
 # Validate MCP configuration if provided
 if [[ -n "$MCP_CONFIG" ]]; then
     validate_mcp_config "$MCP_CONFIG"
@@ -450,8 +498,12 @@ fi
 
 # Execute the command with timeout
 log "Executing Copilot CLI command..."
+
+# Get the current directory to preserve context
+current_dir=$(pwd)
+
 if command -v timeout &> /dev/null; then
-    timeout "${TIMEOUT_MINUTES}m" bash -c "$COPILOT_CMD"
+    timeout "${TIMEOUT_MINUTES}m" bash -c "cd '$current_dir' && $COPILOT_CMD"
 else
     # Fallback for systems without timeout command
     eval "$COPILOT_CMD"

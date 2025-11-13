@@ -14,7 +14,10 @@ This folder contains shell and PowerShell scripts that provide the same function
 
 1. **Node.js 20+** - Required for Copilot CLI
 2. **GitHub Copilot CLI** - Auto-installed by default, or install manually with `npm install -g @github/copilot`
-3. **GitHub Authentication** - Authenticate with `gh auth login` or set `GITHUB_TOKEN`
+3. **GitHub Authentication** - Authenticate using one of these methods:
+   - GitHub Personal Access Token (recommended for scripts and CI/CD)
+   - GitHub CLI authentication (`gh auth login`)
+   - Environment variables (`GH_TOKEN` or `GITHUB_TOKEN`)
 
 > **Note**: The scripts will automatically install the latest GitHub Copilot CLI if not found. This can be disabled by setting `auto.install.cli=false` in the properties file or using `--auto-install-cli false`.
 
@@ -59,6 +62,9 @@ chmod +x copilot-cli.sh
 # With system prompt for guided behavior
 ./copilot-cli.sh --system-prompt "Focus only on security vulnerabilities" --prompt "Review this code"
 
+# With GitHub token authentication
+./copilot-cli.sh --github-token "ghp_xxxxxxxxxxxxxxxxxxxx" --prompt "Review this code"
+
 # Disable auto-install if you prefer manual CLI management
 ./copilot-cli.sh --auto-install-cli false --prompt "Review the code"
 
@@ -74,6 +80,9 @@ chmod +x copilot-cli.sh
 # With system prompt for guided behavior
 .\copilot-cli.ps1 -SystemPrompt "Focus only on security vulnerabilities" -Prompt "Review this code"
 
+# With GitHub token authentication
+.\copilot-cli.ps1 -GithubToken "ghp_xxxxxxxxxxxxxxxxxxxx" -Prompt "Review this code"
+
 # Disable auto-install if you prefer manual CLI management  
 .\copilot-cli.ps1 -AutoInstallCli false -Prompt "Review the code"
 
@@ -81,7 +90,55 @@ chmod +x copilot-cli.sh
 .\copilot-cli.ps1 -Config "my-config.properties" -Prompt "Analyze security"
 ```
 
-## 📖 Configuration
+## � Authentication
+
+GitHub Copilot CLI requires authentication to access the GitHub Copilot service. The scripts support multiple authentication methods for flexibility across different environments.
+
+### Authentication Methods (Order of Precedence)
+
+1. **Command Line Arguments** (highest priority)
+   - Bash: `--github-token "ghp_xxxxxxxxxxxxxxxxxxxx"`
+   - PowerShell: `-GithubToken "ghp_xxxxxxxxxxxxxxxxxxxx"`
+
+2. **Properties File Configuration**
+   - Add `github.token=ghp_xxxxxxxxxxxxxxxxxxxx` to your `.properties` file
+
+3. **Environment Variables**
+   - `GH_TOKEN` environment variable
+   - `GITHUB_TOKEN` environment variable
+
+4. **GitHub CLI Authentication** (lowest priority)
+   - Existing authentication via `gh auth login`
+
+### Setting Up a Personal Access Token (PAT)
+
+1. **Create a fine-grained PAT:**
+   - Visit [GitHub Personal Access Tokens](https://github.com/settings/personal-access-tokens/new)
+   - Under "Permissions," click "add permissions" and select "Copilot Requests"
+   - Generate your token
+
+2. **Configure the token:**
+   ```bash
+   # Environment variable (recommended for CI/CD)
+   export GITHUB_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+   export GH_TOKEN=ghp_xxxxxxxxxxxxxxxxxxxx
+   
+   # Properties file (for project-specific configuration)
+   echo "github.token=ghp_xxxxxxxxxxxxxxxxxxxx" >> copilot-cli.properties
+   
+   # Command line (for one-time use)
+   ./copilot-cli.sh --github-token "ghp_xxxxxxxxxxxxxxxxxxxx" --prompt "Review code"
+   ```
+
+### Security Best Practices
+
+- **Never commit tokens to version control**
+- **Use environment variables in CI/CD pipelines**
+- **Set minimal required permissions on PATs**
+- **Rotate tokens regularly**
+- **Use encrypted secrets management in production**
+
+## �📖 Configuration
 
 ### Properties File Configuration
 
@@ -93,6 +150,11 @@ prompt=Review the code for potential issues
 system.prompt=Focus on security vulnerabilities and provide specific recommendations
 copilot.model=claude-sonnet-4.5
 auto.install.cli=true
+
+# GitHub Authentication
+github.token=ghp_xxxxxxxxxxxxxxxxxxxx
+
+# Tool permissions
 allow.all.tools=true
 
 # Working directory and path settings
@@ -127,6 +189,7 @@ OPTIONS:
     -c, --config FILE               Configuration properties file
     -p, --prompt TEXT              The prompt to execute (required)
     -s, --system-prompt TEXT       System instructions to guide AI behavior
+    -t, --github-token TOKEN       GitHub Personal Access Token for authentication
     -m, --model MODEL              AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
     --auto-install-cli BOOL        Automatically install Copilot CLI if not found (true/false)
     --mcp-config TEXT              MCP configuration as JSON string
@@ -155,6 +218,7 @@ PARAMETERS:
     -Config FILE                    Configuration properties file
     -Prompt TEXT                   The prompt to execute (required)
     -SystemPrompt TEXT             System instructions to guide AI behavior
+    -GithubToken TOKEN             GitHub Personal Access Token for authentication
     -Model MODEL                   AI model
     -AutoInstallCli BOOL           Automatically install Copilot CLI if not found (true/false)
     -McpConfig TEXT                MCP configuration as JSON string
