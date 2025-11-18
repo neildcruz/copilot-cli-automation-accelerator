@@ -169,6 +169,158 @@ function Test-RepositoryVisibility {
     }
 }
 
+function Find-GitRepository {
+    Write-Step "Looking for git repository..."
+    
+    $currentPath = Get-Location
+    $searchPath = $currentPath
+    
+    do {
+        $gitPath = Join-Path $searchPath ".git"
+        if (Test-Path $gitPath) {
+            Write-Success "Found git repository at: $searchPath"
+            return $searchPath.ToString()
+        }
+        
+        $parentPath = Split-Path $searchPath -Parent
+        if ($parentPath -eq $searchPath) {
+            # Reached root directory
+            break
+        }
+        $searchPath = $parentPath
+    } while ($true)
+    
+    Write-Info "No git repository found in current directory tree"
+    return $null
+}
+
+function Test-GitIgnoreEntry {
+    param(
+        [string]$GitIgnorePath,
+        [string]$Entry
+    )
+    
+    if (-not (Test-Path $GitIgnorePath)) {
+        return $false
+    }
+    
+    try {
+        $content = Get-Content -Path $GitIgnorePath -Encoding UTF8 -ErrorAction Stop
+        
+        # Check for exact entry or variations
+        $patterns = @(
+            $Entry,
+            "$Entry/",
+            "/$Entry",
+            "/$Entry/"
+        )
+        
+        foreach ($line in $content) {
+            $trimmedLine = $line.Trim()
+            if ($trimmedLine -and -not $trimmedLine.StartsWith('#')) {
+                foreach ($pattern in $patterns) {
+                    if ($trimmedLine -eq $pattern) {
+                        return $true
+                    }
+                }
+            }
+        }
+        
+        return $false
+    }
+    catch {
+        Write-Warning "Could not read .gitignore file: $_"
+        return $false
+    }
+}
+
+function Add-GitIgnoreEntry {
+    param(
+        [string]$GitIgnorePath,
+        [string]$Entry
+    )
+    
+    try {
+        # Determine the entry format (directory with trailing slash)
+        $gitignoreEntry = if ($Entry.EndsWith('/')) { $Entry } else { "$Entry/" }
+        
+        # Prepare the content to add
+        $comment = "# GitHub Copilot CLI Automation Tools (auto-generated)"
+        $newContent = "`n$comment`n$gitignoreEntry"
+        
+        # Check if .gitignore exists
+        if (Test-Path $GitIgnorePath) {
+            # Read existing content - handle empty files
+            $existingContent = ""
+            try {
+                $rawContent = Get-Content -Path $GitIgnorePath -Encoding UTF8 -Raw -ErrorAction Stop
+                if ($null -ne $rawContent) {
+                    $existingContent = $rawContent
+                }
+            }
+            catch {
+                # File exists but can't be read or is empty
+                $existingContent = ""
+            }
+            
+            # Ensure the file doesn't end with the entry we're about to add
+            if (-not $existingContent.TrimEnd().EndsWith($gitignoreEntry.TrimEnd())) {
+                # Ensure proper newline at end of existing content
+                if ($existingContent -and -not $existingContent.EndsWith("`n")) {
+                    $newContent = "`n$comment`n$gitignoreEntry"
+                }
+                
+                # Append to existing file
+                Add-Content -Path $GitIgnorePath -Value $newContent.TrimStart("`n") -Encoding UTF8 -NoNewline
+            }
+        } else {
+            # Create new .gitignore file
+            $fileContent = $comment + "`n" + $gitignoreEntry
+            Set-Content -Path $GitIgnorePath -Value $fileContent -Encoding UTF8 -NoNewline
+        }
+        
+        return $true
+    }
+    catch {
+        Write-Warning "Failed to update .gitignore: $_"
+        return $false
+    }
+}
+
+function Update-GitIgnore {
+    param(
+        [string]$InstallPath
+    )
+    
+    Write-Step "Updating .gitignore to exclude automation tools..."
+    
+    # Find git repository root
+    $gitRepo = Find-GitRepository
+    
+    if (-not $gitRepo) {
+        Write-Info "No git repository detected - skipping .gitignore update"
+        return
+    }
+    
+    $gitignorePath = Join-Path $gitRepo ".gitignore"
+    $installDirName = Split-Path $InstallPath -Leaf
+    
+    # Check if entry already exists
+    if (Test-GitIgnoreEntry -GitIgnorePath $gitignorePath -Entry $installDirName) {
+        Write-Success "Automation directory '$installDirName' already excluded in .gitignore"
+        return
+    }
+    
+    # Add entry to .gitignore
+    $success = Add-GitIgnoreEntry -GitIgnorePath $gitignorePath -Entry $installDirName
+    
+    if ($success) {
+        Write-Success "Added '$installDirName/' to .gitignore"
+    } else {
+        Write-Warning "Failed to update .gitignore - you may need to manually exclude '$installDirName/' from version control"
+    }
+}
+
 # Determine installation path
 if (-not $InstallPath) {
     if ($Mode -eq 'central') {
@@ -186,7 +338,7 @@ $FilesToDownload = @(
     @{ Path = "automation/copilot-cli.ps1"; Required = $true },
     @{ Path = "automation/copilot-cli.properties"; Required = $true },
     @{ Path = "automation/user.prompt.md"; Required = $false },
-    @{ Path = "automation/system.prompt.md"; Required = $false },
+    @{ Path = "automation/system.prompt.md"; Required = $false }
 )
 
 function Test-Prerequisites {
@@ -457,6 +609,9 @@ function Main {
             $null = New-Item -ItemType Directory -Path $InstallPath -Force
         }
         Write-Success "Installation directory ready: $InstallPath"
+        
+        # Step 3.5: Update .gitignore
+        Update-GitIgnore -InstallPath $InstallPath
         
         # Step 4: Download all files (updated to pass repository info)
         Write-Step "Downloading files from repository..."
