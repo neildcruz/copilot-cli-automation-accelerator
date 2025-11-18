@@ -23,6 +23,7 @@ param(
     [string]$WorkingDirectory = ".",
     [string]$NodeVersion = "22",
     [int]$TimeoutMinutes = 30,
+    [switch]$NoColor,
     [switch]$DryRun,
     [switch]$Verbose,
     [switch]$Help
@@ -61,6 +62,7 @@ OPTIONS:
     -LogLevel LEVEL                Log level (none, error, warning, info, debug, all)
     -WorkingDirectory DIR          Working directory to run from
     -TimeoutMinutes MINUTES        Timeout in minutes
+    -NoColor                       Disable colored output (automatically enabled for CI/CD)
     -DryRun                        Show command without executing
     -Verbose                       Enable verbose output
     -Help                          Show this help message
@@ -305,7 +307,9 @@ function Build-CopilotCommand {
         $fullPrompt = "IMPORTANT: Please follow these guidelines strictly: $SystemPrompt`n`n$Prompt"
     }
     
-    $cmd = "copilot -p `"$fullPrompt`""
+    # Use single quotes to avoid PowerShell parsing issues with parentheses
+    $escapedPrompt = $fullPrompt -replace "'", "''"
+    $cmd = "copilot -p '$escapedPrompt'"
     
     # Add model
     if (-not [string]::IsNullOrEmpty($Model)) {
@@ -382,8 +386,12 @@ function Build-CopilotCommand {
         $cmd += " --log-level $LogLevel"
     }
     
-    # Add no-color for better output
-    $cmd += " --no-color"
+    # Add no-color flag conditionally (auto-detect CI/CD or use explicit flag)
+    $isCI = $env:CI -eq 'true' -or $env:GITHUB_ACTIONS -eq 'true' -or $env:TF_BUILD -eq 'True' -or $env:JENKINS_URL
+    if ($NoColor -or $isCI) {
+        $cmd += " --no-color"
+        Write-Log "No-color mode enabled for better output compatibility"
+    }
     
     return $cmd
 }
@@ -413,6 +421,7 @@ try {
     
     # Print current working directory
     $currentDir = Get-Location
+    $originalDir = $currentDir  # Store original directory to revert back later
     Write-Host "Working directory: $currentDir" -ForegroundColor Cyan
     Write-Log "Current working directory: $currentDir"
     
@@ -450,33 +459,71 @@ try {
         exit 0
     }
     
-    # Execute the command with timeout
-    Write-Log "Executing Copilot CLI command..."
+    # Execute the command with streaming output and timeout
+    Write-Log "Executing Copilot CLI command with streaming output..."
     
-    # Get the current location to pass to the job
-    $currentLocation = Get-Location
+    # Set environment variables for authentication
+    if (-not [string]::IsNullOrEmpty($script:GithubToken)) {
+        $env:GH_TOKEN = $script:GithubToken
+        $env:GITHUB_TOKEN = $script:GithubToken
+    }
     
-    $job = Start-Job -ScriptBlock {
-        param($cmd, $workDir)
-        Set-Location $workDir
-        Invoke-Expression $cmd
-    } -ArgumentList $copilotCmd, $currentLocation
+    # Execute with timeout using System.Diagnostics.Process for streaming output
+    $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+    $processInfo.FileName = "powershell.exe"
+    $processInfo.Arguments = "-Command `"& { $copilotCmd }`""
+    $processInfo.RedirectStandardOutput = $false
+    $processInfo.RedirectStandardError = $false
+    $processInfo.UseShellExecute = $false
+    $processInfo.CreateNoWindow = $false
+    $processInfo.WorkingDirectory = (Get-Location).Path
     
-    $completed = Wait-Job -Job $job -Timeout ($TimeoutMinutes * 60)
+    $process = New-Object System.Diagnostics.Process
+    $process.StartInfo = $processInfo
     
-    if ($completed) {
-        Receive-Job -Job $job -ErrorAction SilentlyContinue
-        Remove-Job -Job $job -Force
-        Write-Host "Copilot CLI execution completed successfully" -ForegroundColor Green
-    } else {
-        Stop-Job -Job $job
-        Remove-Job -Job $job -Force
-        throw "Copilot CLI execution timed out after $TimeoutMinutes minutes"
+    try {
+        Write-Host "Starting Copilot CLI execution..." -ForegroundColor Yellow
+        $process.Start()
+        
+        # Wait for completion with timeout
+        $timeoutMs = $TimeoutMinutes * 60 * 1000
+        $completed = $process.WaitForExit($timeoutMs)
+        
+        if ($completed) {
+            if ($process.ExitCode -eq 0) {
+                Write-Host "Copilot CLI execution completed successfully" -ForegroundColor Green
+                # Restore original working directory
+                if ($WorkingDirectory -ne "." -and $originalDir) {
+                    Set-Location $originalDir
+                    Write-Host "Restored working directory to: $originalDir" -ForegroundColor Cyan
+                    Write-Log "Restored working directory to: $originalDir"
+                }
+            } else {
+                throw "Copilot CLI execution failed with exit code: $($process.ExitCode)"
+            }
+        } else {
+            $process.Kill()
+            throw "Copilot CLI execution timed out after $TimeoutMinutes minutes"
+        }
+    } finally {
+        if (-not $process.HasExited) {
+            try { $process.Kill() } catch { }
+        }
+        $process.Dispose()
     }
     
 } catch {
     Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
     exit 1
 } finally {
+    # Restore original directory in case of errors
+    if ($WorkingDirectory -ne "." -and $originalDir -and (Get-Location) -ne $originalDir) {
+        try {
+            Set-Location $originalDir
+            Write-Log "Restored working directory to: $originalDir (cleanup)"
+        } catch {
+            Write-Log "Warning: Could not restore working directory: $($_.Exception.Message)"
+        }
+    }
     Cleanup
 }
