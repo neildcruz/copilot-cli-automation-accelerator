@@ -10,9 +10,7 @@ set -e
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CONFIG_FILE="${SCRIPT_DIR}/copilot-cli.properties"
 PROMPT=""
-PROMPT_FILE=""
 SYSTEM_PROMPT=""
-SYSTEM_PROMPT_FILE=""
 GITHUB_TOKEN=""
 MCP_CONFIG=""
 MCP_CONFIG_FILE=""
@@ -42,10 +40,8 @@ Usage: $0 [OPTIONS]
 
 OPTIONS:
     -c, --config FILE               Configuration properties file (default: copilot-cli.properties)
-    -p, --prompt TEXT              The prompt to execute with Copilot CLI (required unless --prompt-file is provided)
-    --prompt-file FILE             Path to text/markdown file containing the prompt (overridden by -p/--prompt)
+    -p, --prompt TEXT              The prompt to execute with Copilot CLI (required)
     -s, --system-prompt TEXT       System prompt with guidelines to be emphasized and followed
-    --system-prompt-file FILE      Path to text/markdown file containing the system prompt (overridden by -s/--system-prompt)
     -t, --github-token TOKEN       GitHub Personal Access Token for authentication
     -m, --model MODEL              AI model to use (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
     --auto-install-cli BOOL        Automatically install Copilot CLI if not found (true/false, default: true)
@@ -70,17 +66,8 @@ EXAMPLES:
     # Basic usage with prompt
     $0 --prompt "Review the code for issues"
     
-    # Using prompt from file
-    $0 --prompt-file user.prompt.md
-    
     # With system prompt for guidelines
     $0 --prompt "Review the code" --system-prompt "Focus on security and performance issues only"
-    
-    # With system prompt from file
-    $0 --prompt "Review the code" --system-prompt-file system.prompt.md
-    
-    # Command line prompt overrides file
-    $0 --prompt-file user.prompt.md --prompt "Override with this prompt"
     
     # With GitHub token authentication
     $0 --prompt "Review the code" --github-token "ghp_xxxxxxxxxxxxxxxxxxxx"
@@ -126,30 +113,6 @@ parse_bool() {
     esac
 }
 
-# Function to load content from file preserving formatting
-load_file_content() {
-    local file_path="$1"
-    local content_type="$2"
-    
-    if [[ ! -f "$file_path" ]]; then
-        echo "Error: $content_type file '$file_path' not found" >&2
-        exit 1
-    fi
-    
-    # Validate file extension
-    local extension="${file_path##*.}"
-    extension=$(echo "$extension" | tr '[:upper:]' '[:lower:]')
-    if [[ "$extension" != "txt" && "$extension" != "md" ]]; then
-        log "Warning: $content_type file has extension '.$extension', expected .txt or .md"
-    fi
-    
-    log "Loading $content_type from file: $file_path"
-    
-    # Read file content preserving line breaks and formatting
-    # Use cat to preserve exact content
-    cat "$file_path"
-}
-
 # Function to load configuration from properties file
 load_config() {
     local config_file="$1"
@@ -173,9 +136,7 @@ load_config() {
             
             case "$key" in
                 prompt) PROMPT="$value" ;;
-                prompt.file) PROMPT_FILE="$value" ;;
                 system.prompt) SYSTEM_PROMPT="$value" ;;
-                system.prompt.file) SYSTEM_PROMPT_FILE="$value" ;;
                 github.token) GITHUB_TOKEN="$value" ;;
                 mcp.config) MCP_CONFIG="$value" ;;
                 mcp.config.file) MCP_CONFIG_FILE="$value" ;;
@@ -405,16 +366,8 @@ while [[ $# -gt 0 ]]; do
             PROMPT="$2"
             shift 2
             ;;
-        --prompt-file)
-            PROMPT_FILE="$2"
-            shift 2
-            ;;
         -s|--system-prompt)
             SYSTEM_PROMPT="$2"
-            shift 2
-            ;;
-        --system-prompt-file)
-            SYSTEM_PROMPT_FILE="$2"
             shift 2
             ;;
         -t|--github-token)
@@ -504,20 +457,9 @@ done
 # Load configuration file
 load_config "$CONFIG_FILE"
 
-# Load prompts from files if specified (command line params override)
-# Load prompt from file if PROMPT_FILE is specified and PROMPT is empty
-if [[ -z "$PROMPT" && -n "$PROMPT_FILE" ]]; then
-    PROMPT=$(load_file_content "$PROMPT_FILE" "Prompt")
-fi
-
-# Load system prompt from file if SYSTEM_PROMPT_FILE is specified and SYSTEM_PROMPT is empty
-if [[ -z "$SYSTEM_PROMPT" && -n "$SYSTEM_PROMPT_FILE" ]]; then
-    SYSTEM_PROMPT=$(load_file_content "$SYSTEM_PROMPT_FILE" "System prompt")
-fi
-
 # Validate required parameters
 if [[ -z "$PROMPT" ]]; then
-    echo "Error: Prompt is required. Use --prompt, --prompt-file, or set prompt/prompt.file in config file." >&2
+    echo "Error: Prompt is required. Use --prompt or set prompt in config file." >&2
     exit 1
 fi
 

@@ -18,8 +18,6 @@ Cross-platform scripts for local development automation:
 - **[copilot-cli.sh](automation/copilot-cli.sh)** - Bash script for Linux/macOS environments
 - **[copilot-cli.ps1](automation/copilot-cli.ps1)** - PowerShell script for Windows/cross-platform
 - **[copilot-cli.properties](automation/copilot-cli.properties)** - Sample configuration file
-- **[user.prompt.md](automation/user.prompt.md)** - Default user prompt template
-- **[system.prompt.md](automation/system.prompt.md)** - Default system prompt template
 - **[README.md](automation/README.md)** - Complete scripts documentation and usage guide
 - **[examples/mcp-config.json](automation/examples/mcp-config.json)** - Sample MCP server configuration
 

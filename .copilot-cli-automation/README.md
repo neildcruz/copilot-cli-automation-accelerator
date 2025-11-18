@@ -18,34 +18,11 @@ output/
     ├── copilot-cli.sh      # Bash script for Linux/macOS
     ├── copilot-cli.ps1     # PowerShell script for Windows/cross-platform
     ├── copilot-cli.properties      # Sample configuration file
-    ├── user.prompt.md      # Default user prompt file
-    ├── system.prompt.md    # Default system prompt file
     └── examples/
-        ├── README.md       # Agent examples documentation
-        ├── mcp-config.json # Sample MCP server configuration
-        ├── code-review/    # Code review agent with prompt files
-        ├── security-analysis/  # Security analysis agent with prompt files
-        ├── test-generation/    # Test generation agent with prompt files
-        ├── documentation-generation/  # Documentation agent with prompt files
-        ├── refactoring/    # Code refactoring agent with prompt files
-        └── cicd-analysis/  # CI/CD analysis agent with prompt files
+        └── mcp-config.json # Sample MCP server configuration
 ```
 
 ## 🚀 Quick Start
-
-### 📦 One-Line Installation
-
-**PowerShell (Windows/Cross-platform):**
-```powershell
-iwr https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.ps1 | iex
-```
-
-**Bash (Linux/macOS):**
-```bash
-curl -fsSL https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.sh | bash
-```
-
-> 📋 **See [INSTALL.md](INSTALL.md) for complete installation options and troubleshooting**
 
 ### For GitHub Actions (CI/CD)
 If you want to integrate Copilot CLI into your GitHub workflows:

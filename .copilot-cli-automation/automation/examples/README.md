@@ -7,29 +7,17 @@ This directory contains ready-to-use agent configuration examples for various So
 ```
 examples/
 ├── code-review/              - Code quality and best practices review
-│   ├── code-review-agent.properties
-│   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── code-review-agent.properties
 ├── security-analysis/        - Security vulnerability scanning
-│   ├── security-analysis-agent.properties
-│   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── security-analysis-agent.properties
 ├── test-generation/          - Unit and integration test generation
-│   ├── test-generation-agent.properties
-│   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── test-generation-agent.properties
 ├── documentation-generation/ - Technical documentation creation
-│   ├── documentation-generation-agent.properties
-│   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── documentation-generation-agent.properties
 ├── refactoring/              - Code structure improvements
-│   ├── refactoring-agent.properties
-│   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── refactoring-agent.properties
 ├── cicd-analysis/            - CI/CD pipeline optimization
-│   ├── cicd-analysis-agent.properties
-│   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── cicd-analysis-agent.properties
 └── mcp-config.json           - MCP server configuration example
 ```
 
@@ -41,7 +29,7 @@ examples/
 Performs comprehensive code quality and best practices review.
 
 **Configuration:**
-- Pre-configured user and system prompts in separate files
+- Pre-configured system and user prompts
 - Full tool permissions enabled
 - 30-minute timeout
 - Uses Claude Sonnet 4.5 model
@@ -335,36 +323,32 @@ cd automation
 
 ### Modifying System Prompts
 
-System prompts guide the AI's behavior and expertise. Edit them in the `system.prompt.md` files to:
+System prompts guide the AI's behavior and expertise. Edit them to:
 - Add specific focus areas
 - Change tone or style
 - Add domain-specific knowledge
 - Modify output format
 
 **Example:**
-```markdown
-# Custom System Prompt
-
-You are an expert code reviewer specializing in Python.
+```bash
+SYSTEM_PROMPT="You are an expert code reviewer specializing in Python.
 Focus on Pythonic patterns, PEP 8 compliance, and type hints.
-Provide specific examples with PEP references where applicable.
+Provide specific examples with PEP references where applicable."
 ```
 
 ### Modifying User Prompts
 
-User prompts define the specific task. Customize them in the `user.prompt.md` files to:
+User prompts define the specific task. Customize them to:
 - Target specific files or directories
 - Focus on particular aspects
 - Change scope or depth of analysis
 - Add project-specific requirements
 
 **Example:**
-```markdown
-# Custom User Prompt
-
-Review only the authentication module in src/auth/.
+```bash
+USER_PROMPT="Review only the authentication module in src/auth/.
 Focus on JWT implementation and session management.
-Check for OAuth 2.0 best practices.
+Check for OAuth 2.0 best practices."
 ```
 
 ### Creating Custom Properties Files
@@ -375,8 +359,8 @@ Create a new `.properties` file with your custom configuration:
 # custom-agent.properties
 
 # Core configuration
-prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+prompt=Your custom prompt here
+system.prompt=Your custom system prompt here
 
 # Model selection
 copilot.model=claude-sonnet-4.5
@@ -624,9 +608,13 @@ Refine prompts based on output quality and relevance.
 
 cd "$(dirname "$0")/.."
 
+SYSTEM_PROMPT="[Your system prompt defining AI expertise and focus]"
+
+USER_PROMPT="[Your user prompt defining the specific task]"
+
 ./copilot-cli.sh \
-  --prompt-file "examples/[agent-folder]/user.prompt.md" \
-  --system-prompt-file "examples/[agent-folder]/system.prompt.md" \
+  --system-prompt "$SYSTEM_PROMPT" \
+  --prompt "$USER_PROMPT" \
   --model claude-sonnet-4.5 \
   --allow-all-tools true \
   --log-level info \
@@ -642,9 +630,17 @@ cd "$(dirname "$0")/.."
 Set-Location (Split-Path -Parent (Split-Path -Parent $MyInvocation.MyCommand.Path))
 Set-Location ".\automation"
 
+$SystemPrompt = @"
+[Your system prompt defining AI expertise and focus]
+"@
+
+$UserPrompt = @"
+[Your user prompt defining the specific task]
+"@
+
 .\copilot-cli.ps1 `
-  -PromptFile "examples\[agent-folder]\user.prompt.md" `
-  -SystemPromptFile "examples\[agent-folder]\system.prompt.md" `
+  -SystemPrompt $SystemPrompt `
+  -Prompt $UserPrompt `
   -Model "claude-sonnet-4.5" `
   -AllowAllTools "true" `
   -LogLevel "info" `
@@ -657,8 +653,8 @@ Set-Location ".\automation"
 # [Agent Name] Configuration
 # [Description]
 
-prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+prompt=[Your user prompt]
+system.prompt=[Your system prompt]
 
 copilot.model=claude-sonnet-4.5
 allow.all.tools=true

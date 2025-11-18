@@ -1,0 +1,185 @@
+name: Example Copilot CLI Usage
+
+on:
+  workflow_dispatch:
+    inputs:
+      analysis_type:
+        description: 'Type of analysis to perform'
+        required: true
+        type: choice
+        options:
+          - 'code-review'
+          - 'security-analysis'
+          - 'documentation-generation'
+          - 'test-generation'
+          - 'refactoring-suggestions'
+        default: 'code-review'
+      
+      target_directory:
+        description: 'Directory to analyze (leave empty for entire repo)'
+        required: false
+        type: string
+        default: ''
+      
+      use_custom_mcp:
+        description: 'Use custom MCP server for enhanced analysis'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # Example 1: Basic Code Review
+  code-review:
+    if: ${{ inputs.analysis_type == 'code-review' }}
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      prompt: "Perform a comprehensive code review of the repository. Focus on code quality, best practices, potential bugs, and maintainability. Provide specific suggestions for improvement."
+      copilot_model: "claude-sonnet-4.5"
+      allow_all_tools: true
+      working_directory: ${{ inputs.target_directory || '.' }}
+      log_level: "info"
+      timeout_minutes: 20
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Example 2: Security Analysis with Restricted Tools
+  security-analysis:
+    if: ${{ inputs.analysis_type == 'security-analysis' }}
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      prompt: "Analyze the codebase for security vulnerabilities, including SQL injection, XSS, authentication issues, and insecure dependencies. Generate a security report with recommendations."
+      copilot_model: "gpt-5"
+      allow_all_tools: false
+      allowed_tools: "write,grep,find"
+      denied_tools: "shell"
+      working_directory: ${{ inputs.target_directory || '.' }}
+      log_level: "debug"
+      additional_directories: "./src,./lib,./config"
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Example 3: Documentation Generation
+  documentation-generation:
+    if: ${{ inputs.analysis_type == 'documentation-generation' }}
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      prompt: "Generate comprehensive documentation for the codebase. Create README files, API documentation, and code comments where missing. Focus on clarity and completeness."
+      copilot_model: "claude-sonnet-4.5"
+      allow_all_tools: true
+      working_directory: ${{ inputs.target_directory || '.' }}
+      log_level: "info"
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Example 4: Test Generation
+  test-generation:
+    if: ${{ inputs.analysis_type == 'test-generation' }}
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      prompt: "Analyze the codebase and generate comprehensive unit tests and integration tests for functions and modules that lack test coverage. Follow testing best practices and use appropriate testing frameworks."
+      copilot_model: "claude-sonnet-4.5"
+      allow_all_tools: true
+      working_directory: ${{ inputs.target_directory || '.' }}
+      additional_directories: "./test,./tests,./spec"
+      log_level: "info"
+      timeout_minutes: 25
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Example 5: Refactoring Suggestions
+  refactoring-suggestions:
+    if: ${{ inputs.analysis_type == 'refactoring-suggestions' }}
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      prompt: "Analyze the codebase for refactoring opportunities. Identify code duplication, long functions, complex methods, and suggest improvements for better maintainability and performance."
+      copilot_model: "gpt-5"
+      allow_all_tools: true
+      working_directory: ${{ inputs.target_directory || '.' }}
+      log_level: "info"
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+  # Example 6: Custom MCP Server Analysis
+  custom-mcp-analysis:
+    if: ${{ inputs.use_custom_mcp }}
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      prompt: "Use the custom database and API tools to analyze the data layer, suggest optimizations, and verify data integrity across the application."
+      mcp_config: |
+        {
+          "mcpServers": {
+            "database-analyzer": {
+              "type": "local",
+              "command": "python",
+              "args": ["scripts/database-mcp-server.py"],
+              "tools": ["analyze_schema", "check_indexes", "query_performance"],
+              "env": {
+                "DB_HOST": "${DATABASE_HOST:-localhost}",
+                "DB_PORT": "${DATABASE_PORT:-5432}",
+                "API_ENDPOINT": "${API_ENDPOINT}"
+              }
+            },
+            "api-client": {
+              "type": "http",
+              "url": "https://api.example.com/mcp",
+              "headers": {
+                "Authorization": "Bearer ${API_TOKEN}",
+                "X-Client-Version": "1.0"
+              },
+              "tools": ["fetch_metrics", "validate_endpoints"]
+            }
+          }
+        }
+      allow_all_tools: true
+      enable_all_github_mcp_tools: true
+      log_level: "debug"
+      timeout_minutes: 30
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MCP_ENV_VARS: |
+        {
+          "DATABASE_HOST": "${{ secrets.DATABASE_HOST }}",
+          "DATABASE_PORT": "${{ secrets.DATABASE_PORT }}",
+          "API_ENDPOINT": "${{ secrets.API_ENDPOINT }}",
+          "API_TOKEN": "${{ secrets.API_TOKEN }}"
+        }
+
+  # Example 7: Selective Tool Access with Multiple MCP Servers
+  advanced-analysis:
+    if: ${{ always() }}
+    needs: [code-review, security-analysis, documentation-generation, test-generation, refactoring-suggestions]
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      prompt: "Synthesize the previous analysis results and create a comprehensive project health report with prioritized recommendations and implementation roadmap."
+      mcp_config: |
+        {
+          "mcpServers": {
+            "report-generator": {
+              "type": "local",
+              "command": "node",
+              "args": ["tools/report-generator.js"],
+              "tools": ["generate_report", "create_charts"]
+            },
+            "notification-service": {
+              "type": "http",
+              "url": "${NOTIFICATION_SERVICE_URL}",
+              "headers": {
+                "Authorization": "Bearer ${NOTIFICATION_TOKEN}"
+              },
+              "tools": ["send_summary"]
+            }
+          }
+        }
+      allow_all_tools: false
+      allowed_tools: "write,report-generator,notification-service(send_summary)"
+      denied_tools: "shell,bash"
+      disable_builtin_mcps: false
+      log_level: "info"
+      timeout_minutes: 15
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      MCP_ENV_VARS: |
+        {
+          "NOTIFICATION_SERVICE_URL": "${{ secrets.NOTIFICATION_SERVICE_URL }}",
+          "NOTIFICATION_TOKEN": "${{ secrets.NOTIFICATION_TOKEN }}"
+        }

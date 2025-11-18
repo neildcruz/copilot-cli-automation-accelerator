@@ -5,9 +5,7 @@
 param(
     [string]$Config = "copilot-cli.properties",
     [string]$Prompt = "",
-    [string]$PromptFile = "",
     [string]$SystemPrompt = "",
-    [string]$SystemPromptFile = "",
     [string]$GithubToken = "",
     [string]$Model = "claude-sonnet-4.5",
     [string]$AutoInstallCli = "true",
@@ -46,10 +44,8 @@ Usage: .\copilot-cli.ps1 [OPTIONS]
 
 OPTIONS:
     -Config FILE                   Configuration properties file (default: copilot-cli.properties)
-    -Prompt TEXT                   The prompt to execute with Copilot CLI (required unless -PromptFile is provided)
-    -PromptFile FILE               Path to text/markdown file containing the prompt (overridden by -Prompt)
+    -Prompt TEXT                   The prompt to execute with Copilot CLI (required)
     -SystemPrompt TEXT             System prompt with guidelines to be emphasized and followed
-    -SystemPromptFile FILE         Path to text/markdown file containing the system prompt (overridden by -SystemPrompt)
     -GithubToken TOKEN             GitHub Personal Access Token for authentication
     -Model MODEL                   AI model to use (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
     -AutoInstallCli BOOL           Automatically install Copilot CLI if not found (true/false, default: true)
@@ -75,17 +71,8 @@ EXAMPLES:
     # Basic usage with prompt
     .\copilot-cli.ps1 -Prompt "Review the code for issues"
     
-    # Using prompt from file
-    .\copilot-cli.ps1 -PromptFile "user.prompt.md"
-    
     # With system prompt for guidelines
     .\copilot-cli.ps1 -Prompt "Review the code" -SystemPrompt "Focus on security and performance issues only"
-    
-    # With system prompt from file
-    .\copilot-cli.ps1 -Prompt "Review the code" -SystemPromptFile "system.prompt.md"
-    
-    # Command line prompt overrides file
-    .\copilot-cli.ps1 -PromptFile "user.prompt.md" -Prompt "Override with this prompt"
     
     # With GitHub token authentication
     .\copilot-cli.ps1 -Prompt "Review the code" -GithubToken "ghp_xxxxxxxxxxxxxxxxxxxx"
@@ -132,40 +119,6 @@ function Parse-Bool {
     }
 }
 
-# Function to load content from file preserving formatting
-function Load-FileContent {
-    param(
-        [string]$FilePath,
-        [string]$ContentType
-    )
-    
-    if (-not (Test-Path $FilePath)) {
-        throw "$ContentType file '$FilePath' not found"
-    }
-    
-    # Validate file extension
-    $extension = [System.IO.Path]::GetExtension($FilePath).ToLower()
-    if ($extension -notin @('.txt', '.md')) {
-        Write-Log "Warning: $ContentType file has extension '$extension', expected .txt or .md"
-    }
-    
-    Write-Log "Loading $ContentType from file: $FilePath"
-    
-    # Read file content preserving line breaks and formatting
-    # Using -Raw to preserve exact formatting including line breaks
-    $content = Get-Content -Path $FilePath -Raw
-    
-    # Remove trailing newline if present (Get-Content -Raw adds one)
-    if ($content -and $content.EndsWith("`n")) {
-        $content = $content.Substring(0, $content.Length - 1)
-    }
-    if ($content -and $content.EndsWith("`r")) {
-        $content = $content.Substring(0, $content.Length - 1)
-    }
-    
-    return $content
-}
-
 # Function to load configuration from properties file
 function Load-Config {
     param([string]$ConfigFile)
@@ -201,14 +154,8 @@ function Load-Config {
         if ($config.ContainsKey("prompt") -and [string]::IsNullOrEmpty($script:Prompt)) {
             $script:Prompt = $config["prompt"]
         }
-        if ($config.ContainsKey("prompt.file") -and [string]::IsNullOrEmpty($script:PromptFile)) {
-            $script:PromptFile = $config["prompt.file"]
-        }
         if ($config.ContainsKey("system.prompt") -and [string]::IsNullOrEmpty($script:SystemPrompt)) {
             $script:SystemPrompt = $config["system.prompt"]
-        }
-        if ($config.ContainsKey("system.prompt.file") -and [string]::IsNullOrEmpty($script:SystemPromptFile)) {
-            $script:SystemPromptFile = $config["system.prompt.file"]
         }
         if ($config.ContainsKey("github.token") -and [string]::IsNullOrEmpty($script:GithubToken)) {
             $script:GithubToken = $config["github.token"]
@@ -467,20 +414,9 @@ try {
     # Load configuration file
     Load-Config -ConfigFile $Config
     
-    # Load prompts from files if specified (command line params override)
-    # Load prompt from file if PromptFile is specified and Prompt is empty
-    if ([string]::IsNullOrEmpty($Prompt) -and -not [string]::IsNullOrEmpty($PromptFile)) {
-        $Prompt = Load-FileContent -FilePath $PromptFile -ContentType "Prompt"
-    }
-    
-    # Load system prompt from file if SystemPromptFile is specified and SystemPrompt is empty
-    if ([string]::IsNullOrEmpty($SystemPrompt) -and -not [string]::IsNullOrEmpty($SystemPromptFile)) {
-        $SystemPrompt = Load-FileContent -FilePath $SystemPromptFile -ContentType "System prompt"
-    }
-    
     # Validate required parameters
     if ([string]::IsNullOrEmpty($Prompt)) {
-        throw "Prompt is required. Use -Prompt parameter, -PromptFile parameter, or set prompt/prompt.file in config file."
+        throw "Prompt is required. Use -Prompt parameter or set prompt in config file."
     }
     
     # Print current working directory

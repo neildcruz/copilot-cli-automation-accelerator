@@ -7,8 +7,6 @@ This folder contains shell and PowerShell scripts that provide the same function
 - **`copilot-cli.sh`** - Bash shell script for Linux/macOS
 - **`copilot-cli.ps1`** - PowerShell script for Windows/cross-platform
 - **`copilot-cli.properties`** - Sample configuration file
-- **`user.prompt.md`** - Default user prompt template
-- **`system.prompt.md`** - Default system prompt template
 
 ## 🚀 Quick Start
 
@@ -148,8 +146,8 @@ Create a `.properties` file with key=value pairs:
 
 ```properties
 # Core settings
-prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+prompt=Review the code for potential issues
+system.prompt=Focus on security vulnerabilities and provide specific recommendations
 copilot.model=claude-sonnet-4.5
 auto.install.cli=true
 
