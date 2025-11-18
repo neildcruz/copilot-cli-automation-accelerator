@@ -183,7 +183,6 @@ $FilesToDownload = @(
     @{ Path = "README.md"; Required = $true },
     @{ Path = "INDEX.md"; Required = $true },
     @{ Path = "automation/README.md"; Required = $true },
-    @{ Path = "automation/copilot-cli.sh"; Required = $true },
     @{ Path = "automation/copilot-cli.ps1"; Required = $true },
     @{ Path = "automation/copilot-cli.properties"; Required = $true },
     @{ Path = "automation/user.prompt.md"; Required = $false },
