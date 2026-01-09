@@ -12,3 +12,5 @@ Analyze CI/CD pipeline configurations and workflows:
 8. Suggest improvements for build time and reliability
 
 Generate a comprehensive report with prioritized recommendations.
+
+Use the github mcp server to create issues for each recommendation found. Provide a detailed description, severity level, and suggested fix for each issue.

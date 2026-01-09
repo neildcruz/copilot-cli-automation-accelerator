@@ -9,3 +9,5 @@ Review all code in this repository. For each file:
 5. Assess code readability and documentation
 
 Generate a comprehensive review report with prioritized recommendations.
+
+Use the github mcp server to create issues for each recommendation found. Provide a detailed description, severity level, and suggested fix for each issue.
