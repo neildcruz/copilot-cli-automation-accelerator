@@ -37,12 +37,12 @@ output/
 
 **PowerShell (Windows/Cross-platform):**
 ```powershell
-iwr https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.ps1 | iex
+$token = gh auth token; iwr "https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.ps1" -Headers @{Authorization = "Bearer $token"} | Select-Object -ExpandProperty Content | iex
 ```
 
 **Bash (Linux/macOS):**
 ```bash
-curl -fsSL https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.sh | bash
+curl -fsSL -H "Authorization: Bearer $(gh auth token)" https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.sh | bash
 ```
 
 > 📋 **See [INSTALL.md](INSTALL.md) for complete installation options and troubleshooting**

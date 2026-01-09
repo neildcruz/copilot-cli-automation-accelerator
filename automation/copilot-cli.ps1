@@ -37,6 +37,22 @@ if (-not $Config.Contains('\') -and -not $Config.Contains('/')) {
     $Config = Join-Path $ScriptDir $Config
 }
 
+# Function to resolve file paths relative to script directory
+function Resolve-FilePath {
+    param([string]$FilePath)
+    
+    if ([string]::IsNullOrEmpty($FilePath)) {
+        return $FilePath
+    }
+    
+    # If the path doesn't contain a path separator, resolve relative to script directory
+    if (-not $FilePath.Contains('\') -and -not $FilePath.Contains('/')) {
+        return Join-Path $ScriptDir $FilePath
+    }
+    
+    return $FilePath
+}
+
 # Function to show usage
 function Show-Usage {
     Write-Host @"
@@ -403,10 +419,11 @@ function Build-CopilotCommand {
     
     # Add MCP configuration
     if (-not [string]::IsNullOrEmpty($McpConfigFile)) {
-        if (-not (Test-Path $McpConfigFile)) {
+        $resolvedMcpConfigFile = Resolve-FilePath -FilePath $McpConfigFile
+        if (-not (Test-Path $resolvedMcpConfigFile)) {
             throw "MCP configuration file '$McpConfigFile' not found"
         }
-        $cmd += " --additional-mcp-config @$McpConfigFile"
+        $cmd += " --additional-mcp-config @$resolvedMcpConfigFile"
     } elseif (-not [string]::IsNullOrEmpty($McpConfig)) {
         # Create temporary file for MCP config
         $tempMcpFile = [System.IO.Path]::GetTempFileName()
@@ -470,12 +487,14 @@ try {
     # Load prompts from files if specified (command line params override)
     # Load prompt from file if PromptFile is specified and Prompt is empty
     if ([string]::IsNullOrEmpty($Prompt) -and -not [string]::IsNullOrEmpty($PromptFile)) {
-        $Prompt = Load-FileContent -FilePath $PromptFile -ContentType "Prompt"
+        $resolvedPromptFile = Resolve-FilePath -FilePath $PromptFile
+        $Prompt = Load-FileContent -FilePath $resolvedPromptFile -ContentType "Prompt"
     }
     
     # Load system prompt from file if SystemPromptFile is specified and SystemPrompt is empty
     if ([string]::IsNullOrEmpty($SystemPrompt) -and -not [string]::IsNullOrEmpty($SystemPromptFile)) {
-        $SystemPrompt = Load-FileContent -FilePath $SystemPromptFile -ContentType "System prompt"
+        $resolvedSystemPromptFile = Resolve-FilePath -FilePath $SystemPromptFile
+        $SystemPrompt = Load-FileContent -FilePath $resolvedSystemPromptFile -ContentType "System prompt"
     }
     
     # Validate required parameters
