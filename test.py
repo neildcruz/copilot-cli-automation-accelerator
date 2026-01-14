@@ -47,7 +47,7 @@ class Calculator:
         Returns:
             The product of a and b.
         """
-        return a * b
+        return a * b 
 
     def divide(self, a: float, b: float) -> float:
         """
