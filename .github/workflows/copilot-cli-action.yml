@@ -129,7 +129,7 @@ jobs:
           
           # Write the copilot-cli.properties configuration
           echo "📝 Writing copilot-cli.properties configuration..."
-          cat << 'EOF' > copilot-cli-automation-accelerator/automation/copilot-cli.properties
+          cat << 'EOF' > .copilot-cli-automation/automation/copilot-cli.properties
           ${{ inputs.copilot_cli_properties }}
           EOF
           
@@ -137,7 +137,7 @@ jobs:
           
           # Verify installation
           echo "🔍 Verifying installation..."
-          ls -la copilot-cli-automation-accelerator/automation/
+          ls -la .copilot-cli-automation/automation/
 
       # Step 4: Run Copilot CLI with prompts
       - name: Run Copilot CLI
@@ -147,7 +147,7 @@ jobs:
           echo "🚀 Running GitHub Copilot CLI..."
           
           # Navigate to the automation directory
-          cd copilot-cli-automation-accelerator/automation
+          cd .copilot-cli-automation/automation
           
           # Make script executable
           chmod +x copilot-cli.sh
