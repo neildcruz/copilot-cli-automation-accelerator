@@ -101,9 +101,9 @@ jobs:
       # You must create a secret named COPILOT_PAT with a Personal Access Token
       # that has the 'copilot' scope enabled.
       # Create at: https://github.com/settings/tokens → Fine-grained tokens → Copilot
-      GITHUB_TOKEN: ${{ secrets.COPILOT_PAT || secrets.GITHUB_TOKEN }}
-      GH_TOKEN: ${{ secrets.COPILOT_PAT || secrets.GITHUB_TOKEN }}
-      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT || secrets.GITHUB_TOKEN }}
+      GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
+      GH_TOKEN: ${{ secrets.COPILOT_PAT }}
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT }}
 
     steps:
       # Step 1: Checkout code

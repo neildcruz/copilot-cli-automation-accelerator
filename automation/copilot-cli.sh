@@ -565,7 +565,8 @@ current_dir=$(pwd)
 export GH_TOKEN GITHUB_TOKEN COPILOT_GITHUB_TOKEN
 
 if command -v timeout &> /dev/null; then
-    timeout "${TIMEOUT_MINUTES}m" bash -c "cd '$current_dir' && $COPILOT_CMD"
+    # Pass environment variables explicitly to the subshell
+    timeout "${TIMEOUT_MINUTES}m" bash -c "export GH_TOKEN='$GH_TOKEN' GITHUB_TOKEN='$GITHUB_TOKEN' COPILOT_GITHUB_TOKEN='$COPILOT_GITHUB_TOKEN'; cd '$current_dir' && $COPILOT_CMD"
 else
     # Fallback for systems without timeout command
     eval "$COPILOT_CMD"
