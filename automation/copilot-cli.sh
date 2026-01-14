@@ -565,19 +565,19 @@ log "GH_TOKEN is set: $([ -n "$GH_TOKEN" ] && echo 'yes' || echo 'no')"
 log "GITHUB_TOKEN is set: $([ -n "$GITHUB_TOKEN" ] && echo 'yes' || echo 'no')"
 log "COPILOT_GITHUB_TOKEN is set: $([ -n "$COPILOT_GITHUB_TOKEN" ] && echo 'yes' || echo 'no')"
 
-# Explicitly export auth environment variables
+# Explicitly export auth environment variables - these are automatically inherited by child processes
 export GH_TOKEN GITHUB_TOKEN COPILOT_GITHUB_TOKEN
 
+# Run the command directly (no subshell needed since we just want to run copilot)
 if command -v timeout &> /dev/null; then
-    # Use timeout with bash -c, passing environment variables via export within the subshell
+    # Debug inside the subshell to verify inheritance
     timeout --preserve-status "${TIMEOUT_MINUTES}m" bash -c "
-        export GH_TOKEN=\"\$GH_TOKEN\"
-        export GITHUB_TOKEN=\"\$GITHUB_TOKEN\"
-        export COPILOT_GITHUB_TOKEN=\"\$COPILOT_GITHUB_TOKEN\"
+        echo '[DEBUG] Inside subshell - GH_TOKEN is set:' \$([ -n \"\$GH_TOKEN\" ] && echo 'yes ('\${#GH_TOKEN}' chars)' || echo 'no')
+        echo '[DEBUG] Inside subshell - GITHUB_TOKEN is set:' \$([ -n \"\$GITHUB_TOKEN\" ] && echo 'yes' || echo 'no')
+        echo '[DEBUG] Inside subshell - COPILOT_GITHUB_TOKEN is set:' \$([ -n \"\$COPILOT_GITHUB_TOKEN\" ] && echo 'yes' || echo 'no')
         $COPILOT_CMD
     "
 else
-    # Fallback for systems without timeout command
     eval "$COPILOT_CMD"
 fi
 
