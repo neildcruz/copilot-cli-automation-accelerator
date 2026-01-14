@@ -13,6 +13,7 @@ UPDATE=false
 BRANCH="main"
 REPOSITORY="neildcruz/copilot-cli-automation-accelerator"
 VERBOSE=false
+GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
 # Color functions for output
 RED='\033[0;31m'
@@ -23,11 +24,11 @@ CYAN='\033[0;36m'
 MAGENTA='\033[0;35m'
 NC='\033[0m' # No Color
 
-print_success() { echo -e "${GREEN}✓ $1${NC}"; }
-print_warning() { echo -e "${YELLOW}⚠ $1${NC}"; }
-print_error() { echo -e "${RED}✗ $1${NC}"; }
-print_info() { echo -e "${CYAN}ℹ $1${NC}"; }
-print_step() { echo -e "${BLUE}→ $1${NC}"; }
+print_success() { echo -e "${GREEN}✓ $1${NC}" >&2; }
+print_warning() { echo -e "${YELLOW}⚠ $1${NC}" >&2; }
+print_error() { echo -e "${RED}✗ $1${NC}" >&2; }
+print_info() { echo -e "${CYAN}ℹ $1${NC}" >&2; }
+print_step() { echo -e "${BLUE}→ $1${NC}" >&2; }
 
 # Check GitHub authentication
 check_github_authentication() {
@@ -102,9 +103,9 @@ check_repository_visibility() {
         200)
             local is_private
             if command -v python3 >/dev/null 2>&1; then
-                is_private=$(echo "$response" | python3 -c "import sys, json; print(json.load(sys.stdin)['private'])" 2>/dev/null || echo "false")
+                is_private=$(echo "$response" | python3 -c "import sys, json; print(str(json.load(sys.stdin)['private']).lower())" 2>/dev/null || echo "false")
             elif command -v python >/dev/null 2>&1; then
-                is_private=$(echo "$response" | python -c "import sys, json; print(json.load(sys.stdin)['private'])" 2>/dev/null || echo "false")
+                is_private=$(echo "$response" | python -c "import sys, json; print(str(json.load(sys.stdin)['private']).lower())" 2>/dev/null || echo "false")
             elif command -v jq >/dev/null 2>&1; then
                 is_private=$(echo "$response" | jq -r '.private' 2>/dev/null || echo "false")
             else
@@ -157,19 +158,25 @@ USAGE:
     $0 [OPTIONS]
 
 OPTIONS:
-    -p, --path PATH       Installation directory (default: current/~/copilot-tools based on mode)
+    -p, --path PATH       Installation directory (default: current/~/.copilot-cli-automation based on mode)
     -m, --mode MODE       Installation mode: 'current' or 'central' (default: current)
     -u, --update          Update existing installation instead of creating new one
     -b, --branch BRANCH   Git branch to download from (default: main)
     -r, --repo REPO       GitHub repository in format 'owner/repo' 
                          (default: neildcruz/copilot-cli-automation-accelerator)
+    -t, --token TOKEN     GitHub personal access token for private repository access
     -v, --verbose         Enable verbose output
     -h, --help            Show this help message
 
+ENVIRONMENT VARIABLES:
+    GITHUB_TOKEN          GitHub personal access token (alternative to --token)
+    GH_TOKEN              GitHub token (used by GitHub Actions)
+
 EXAMPLES:
     $0                                    # Install in current directory
-    $0 --mode central                     # Install in ~/copilot-tools
+    $0 --mode central                     # Install in ~/.copilot-cli-automation
     $0 --path ~/my-tools --update         # Update installation in ~/my-tools
+    $0 --token ghp_xxx...                 # Install with explicit token
     $0 --branch develop --verbose         # Install from develop branch with verbose output
 
 EOF
@@ -203,6 +210,10 @@ parse_args() {
                 REPOSITORY="$2"
                 shift 2
                 ;;
+            -t|--token)
+                GITHUB_TOKEN="$2"
+                shift 2
+                ;;
             -v|--verbose)
                 VERBOSE=true
                 shift
@@ -222,47 +233,23 @@ parse_args() {
     # Set default installation path if not provided
     if [[ -z "$INSTALL_PATH" ]]; then
         if [[ "$MODE" == "central" ]]; then
-            INSTALL_PATH="$HOME/copilot-tools"
+            INSTALL_PATH="$HOME/.copilot-cli-automation"
         else
-            INSTALL_PATH="$(pwd)/copilot-cli-automation-accelerator"
+            INSTALL_PATH="$(pwd)/.copilot-cli-automation"
         fi
     fi
 }
 
-# Files to download with their paths
+# Files to download with their paths (matches PowerShell install script)
 declare -a FILES_TO_DOWNLOAD=(
     "README.md:required"
     "INDEX.md:required"
-    "actions/README.md:required"
-    "actions/QUICK_START.md:required"
-    "actions/copilot-cli-action.yml:required"
-    "actions/example-copilot-usage.yml:required"
     "automation/README.md:required"
     "automation/copilot-cli.sh:required"
     "automation/copilot-cli.ps1:required"
     "automation/copilot-cli.properties:required"
     "automation/user.prompt.md:optional"
     "automation/system.prompt.md:optional"
-    "automation/examples/README.md:required"
-    "automation/examples/mcp-config.json:optional"
-    "automation/examples/code-review/code-review-agent.properties:required"
-    "automation/examples/code-review/user.prompt.md:required"
-    "automation/examples/code-review/system.prompt.md:required"
-    "automation/examples/security-analysis/security-analysis-agent.properties:required"
-    "automation/examples/security-analysis/user.prompt.md:required"
-    "automation/examples/security-analysis/system.prompt.md:required"
-    "automation/examples/test-generation/test-generation-agent.properties:required"
-    "automation/examples/test-generation/user.prompt.md:required"
-    "automation/examples/test-generation/system.prompt.md:required"
-    "automation/examples/documentation-generation/documentation-generation-agent.properties:required"
-    "automation/examples/documentation-generation/user.prompt.md:required"
-    "automation/examples/documentation-generation/system.prompt.md:required"
-    "automation/examples/refactoring/refactoring-agent.properties:required"
-    "automation/examples/refactoring/user.prompt.md:required"
-    "automation/examples/refactoring/system.prompt.md:required"
-    "automation/examples/cicd-analysis/cicd-analysis-agent.properties:required"
-    "automation/examples/cicd-analysis/user.prompt.md:required"
-    "automation/examples/cicd-analysis/system.prompt.md:required"
 )
 
 # Check prerequisites
@@ -385,20 +372,18 @@ download_file() {
         mkdir -p "$destination_dir"
     fi
     
-    # Prepare authentication headers if needed
+    # Always try to use authentication if available (some repos may require it)
     local auth_headers=()
-    if [[ "$is_private" == "private" ]]; then
-        local token="$GITHUB_TOKEN"
-        if [[ -z "$token" ]] && command -v gh >/dev/null 2>&1; then
-            token=$(gh auth token 2>/dev/null || true)
-        fi
-        
-        if [[ -z "$token" ]]; then
-            print_error "No GitHub token found for private repository access"
-            return 1
-        fi
-        
+    local token="$GITHUB_TOKEN"
+    if [[ -z "$token" ]] && command -v gh >/dev/null 2>&1; then
+        token=$(gh auth token 2>/dev/null || true)
+    fi
+    
+    if [[ -n "$token" ]]; then
         auth_headers=(-H "Authorization: Bearer $token")
+    elif [[ "$is_private" == "private" ]]; then
+        print_error "No GitHub token found for private repository access"
+        return 1
     fi
     
     # Download file using curl or wget
@@ -540,9 +525,9 @@ main() {
         local destination_path="$INSTALL_PATH/$file_path"
         
         if download_file "$file_path" "$destination_path" "$is_required" "$repo_visibility"; then
-            ((download_count++))
+            download_count=$((download_count + 1))
         else
-            ((failed_count++))
+            failed_count=$((failed_count + 1))
             if [[ "$is_required" == "required" ]]; then
                 print_error "Installation failed due to missing required file: $file_path"
                 
