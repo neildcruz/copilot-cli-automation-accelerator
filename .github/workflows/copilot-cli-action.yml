@@ -97,9 +97,13 @@ jobs:
       copilot_output: ${{ steps.run-copilot-cli.outputs.copilot_output }}
 
     env:
-      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # IMPORTANT: The default GITHUB_TOKEN does not have Copilot access.
+      # You must create a secret named COPILOT_PAT with a Personal Access Token
+      # that has the 'copilot' scope enabled.
+      # Create at: https://github.com/settings/tokens → Fine-grained tokens → Copilot
+      GITHUB_TOKEN: ${{ secrets.COPILOT_PAT || secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.COPILOT_PAT || secrets.GITHUB_TOKEN }}
+      COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_PAT || secrets.GITHUB_TOKEN }}
 
     steps:
       # Step 1: Checkout code
