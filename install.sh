@@ -398,7 +398,7 @@ download_file() {
             return 1
         fi
         
-        auth_headers=(-H "Authorization: Bearer $token")
+        auth_headers=(-H "Authorization: token $token")
     fi
     
     # Download file using curl or wget
@@ -416,7 +416,7 @@ download_file() {
         if [[ ${#auth_headers[@]} -gt 0 ]]; then
             # Extract token from auth_headers array
             for header in "${auth_headers[@]}"; do
-                if [[ "$header" == "Authorization: Bearer "* ]]; then
+                if [[ "$header" == "Authorization: token "* ]]; then
                     auth_header="--header=$header"
                     break
                 fi
