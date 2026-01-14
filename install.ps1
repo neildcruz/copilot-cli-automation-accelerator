@@ -185,7 +185,7 @@ function Test-RepositoryVisibility {
     }
     
     if ($token) {
-        $headers["Authorization"] = "Bearer $token"
+        $headers["Authorization"] = "token $token"
     }
     
     try {
@@ -515,10 +515,9 @@ function Download-File {
         [bool]$IsPrivate = $false
     )
     
-    $url = "https://raw.githubusercontent.com/$Repository/$Branch/$FilePath"
-    
     # Prepare headers for authentication if needed
     $headers = @{}
+    $token = $null
     
     if ($IsPrivate) {
         # Get token for private repository
@@ -533,19 +532,25 @@ function Download-File {
             }
         }
         
-        if ($token) {
-            $headers["Authorization"] = "Bearer $token"
-        } else {
+        if (-not $token) {
             Write-Error "Authentication required for private repository"
             throw
         }
     }
     
     try {
-        $response = if ($headers.Count -gt 0) {
-            Invoke-WebRequest -Uri $url -Headers $headers -UseBasicParsing -TimeoutSec 30
+        # For private repositories, use GitHub Contents API
+        # For public repositories, use raw.githubusercontent.com
+        if ($IsPrivate) {
+            # Use GitHub Contents API for private repositories
+            $apiUrl = "https://api.github.com/repos/$Repository/contents/$FilePath`?ref=$Branch"
+            $headers["Authorization"] = "token $token"
+            $headers["Accept"] = "application/vnd.github.v3.raw"
+            $response = Invoke-WebRequest -Uri $apiUrl -Headers $headers -UseBasicParsing -TimeoutSec 30
         } else {
-            Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
+            # Use raw.githubusercontent.com for public repositories
+            $url = "https://raw.githubusercontent.com/$Repository/$Branch/$FilePath"
+            $response = Invoke-WebRequest -Uri $url -UseBasicParsing -TimeoutSec 30
         }
         
         # Create directory if it doesn't exist
