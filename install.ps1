@@ -534,7 +534,7 @@ function Download-File {
         }
         
         if ($token) {
-            $headers["Authorization"] = "Bearer $token"
+            $headers["Authorization"] = "token $token"
         } else {
             Write-Error "Authentication required for private repository"
             throw
