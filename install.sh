@@ -66,7 +66,7 @@ check_repository_visibility() {
     fi
     
     if [[ -n "$token" ]]; then
-        headers=(-H "Authorization: Bearer $token")
+        headers=(-H "Authorization: token $token")
     fi
     
     local response
@@ -83,7 +83,7 @@ check_repository_visibility() {
     elif command -v wget >/dev/null 2>&1; then
         local auth_header=""
         if [[ -n "$token" ]]; then
-            auth_header="--header=Authorization: Bearer $token"
+            auth_header="--header=Authorization: token $token"
         fi
         response=$(wget -qO- --timeout=30 --tries=1 \
                         --header="Accept: application/vnd.github.v3+json" \
@@ -385,10 +385,10 @@ download_file() {
         mkdir -p "$destination_dir"
     fi
     
-    # Prepare authentication headers if needed
-    local auth_headers=()
+    # Prepare authentication for raw.githubusercontent.com
+    local token=""
     if [[ "$is_private" == "private" ]]; then
-        local token="$GITHUB_TOKEN"
+        token="$GITHUB_TOKEN"
         if [[ -z "$token" ]] && command -v gh >/dev/null 2>&1; then
             token=$(gh auth token 2>/dev/null || true)
         fi
@@ -397,36 +397,41 @@ download_file() {
             print_error "No GitHub token found for private repository access"
             return 1
         fi
-        
-        auth_headers=(-H "Authorization: Bearer $token")
     fi
     
     # Download file using curl or wget
     local success=false
     
     if command -v curl >/dev/null 2>&1; then
-        if [[ "$VERBOSE" == true ]]; then
-            curl -fsSL --connect-timeout 30 --max-time 60 "${auth_headers[@]}" "$url" -o "$destination_path"
+        # For raw.githubusercontent.com, use token as basic auth with curl
+        if [[ -n "$token" ]]; then
+            if [[ "$VERBOSE" == true ]]; then
+                curl -fsSL --connect-timeout 30 --max-time 60 -H "Authorization: token $token" "$url" -o "$destination_path"
+            else
+                curl -fsSL --connect-timeout 30 --max-time 60 -H "Authorization: token $token" "$url" -o "$destination_path" 2>/dev/null
+            fi
         else
-            curl -fsSL --connect-timeout 30 --max-time 60 "${auth_headers[@]}" "$url" -o "$destination_path" 2>/dev/null
+            if [[ "$VERBOSE" == true ]]; then
+                curl -fsSL --connect-timeout 30 --max-time 60 "$url" -o "$destination_path"
+            else
+                curl -fsSL --connect-timeout 30 --max-time 60 "$url" -o "$destination_path" 2>/dev/null
+            fi
         fi
         success=$?
     elif command -v wget >/dev/null 2>&1; then
-        local auth_header=""
-        if [[ ${#auth_headers[@]} -gt 0 ]]; then
-            # Extract token from auth_headers array
-            for header in "${auth_headers[@]}"; do
-                if [[ "$header" == "Authorization: Bearer "* ]]; then
-                    auth_header="--header=$header"
-                    break
-                fi
-            done
-        fi
-        
-        if [[ "$VERBOSE" == true ]]; then
-            wget --timeout=30 --tries=3 $auth_header "$url" -O "$destination_path"
+        # For raw.githubusercontent.com, use token in header with wget
+        if [[ -n "$token" ]]; then
+            if [[ "$VERBOSE" == true ]]; then
+                wget --timeout=30 --tries=3 --header="Authorization: token $token" "$url" -O "$destination_path"
+            else
+                wget --timeout=30 --tries=3 --header="Authorization: token $token" "$url" -O "$destination_path" >/dev/null 2>&1
+            fi
         else
-            wget --timeout=30 --tries=3 $auth_header "$url" -O "$destination_path" >/dev/null 2>&1
+            if [[ "$VERBOSE" == true ]]; then
+                wget --timeout=30 --tries=3 "$url" -O "$destination_path"
+            else
+                wget --timeout=30 --tries=3 "$url" -O "$destination_path" >/dev/null 2>&1
+            fi
         fi
         success=$?
     fi
