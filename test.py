@@ -45,7 +45,7 @@ class Calculator:
             b: The second number.
 
         Returns:
-            The multiplication of a and b.
+            The product of a and b.
         """
         return a * b
 
