@@ -259,12 +259,12 @@ setup_github_auth() {
     if [[ -n "$GITHUB_TOKEN" ]]; then
         token="$GITHUB_TOKEN"
         log "Using GitHub token from command line argument"
+    elif [[ -n "$COPILOT_GITHUB_TOKEN" ]]; then
+        token="$COPILOT_GITHUB_TOKEN"
+        log "Using GitHub token from COPILOT_GITHUB_TOKEN environment variable"
     elif [[ -n "$GH_TOKEN" ]]; then
         token="$GH_TOKEN"
         log "Using GitHub token from GH_TOKEN environment variable"
-    elif [[ -n "$GITHUB_TOKEN" ]]; then
-        token="$GITHUB_TOKEN"
-        log "Using GitHub token from GITHUB_TOKEN environment variable"
     fi
     
     # Set the environment variable for Copilot CLI if we have a token
@@ -560,6 +560,9 @@ log "Executing Copilot CLI command..."
 
 # Get the current directory to preserve context
 current_dir=$(pwd)
+
+# Explicitly pass auth environment variables to ensure they're available in subshell
+export GH_TOKEN GITHUB_TOKEN COPILOT_GITHUB_TOKEN
 
 if command -v timeout &> /dev/null; then
     timeout "${TIMEOUT_MINUTES}m" bash -c "cd '$current_dir' && $COPILOT_CMD"

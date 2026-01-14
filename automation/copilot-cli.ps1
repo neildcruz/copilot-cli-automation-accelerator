@@ -337,6 +337,9 @@ function Set-GitHubAuth {
     if (-not [string]::IsNullOrEmpty($script:GithubToken)) {
         $token = $script:GithubToken
         Write-Log "Using GitHub token from command line parameter"
+    } elseif (-not [string]::IsNullOrEmpty($env:COPILOT_GITHUB_TOKEN)) {
+        $token = $env:COPILOT_GITHUB_TOKEN
+        Write-Log "Using GitHub token from COPILOT_GITHUB_TOKEN environment variable"
     } elseif (-not [string]::IsNullOrEmpty($env:GH_TOKEN)) {
         $token = $env:GH_TOKEN
         Write-Log "Using GitHub token from GH_TOKEN environment variable"
