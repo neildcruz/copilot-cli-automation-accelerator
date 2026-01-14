@@ -407,7 +407,7 @@ download_file() {
         local api_url="https://api.github.com/repos/$REPOSITORY/contents/$file_path?ref=$BRANCH"
         
         if command -v curl >/dev/null 2>&1; then
-            # Get file content from API and decode base64
+            # Get raw file content from API
             if [[ "$VERBOSE" == true ]]; then
                 local response
                 response=$(curl -fsSL --connect-timeout 30 --max-time 60 \
