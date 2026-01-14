@@ -569,9 +569,13 @@ log "COPILOT_GITHUB_TOKEN is set: $([ -n "$COPILOT_GITHUB_TOKEN" ] && echo 'yes'
 export GH_TOKEN GITHUB_TOKEN COPILOT_GITHUB_TOKEN
 
 if command -v timeout &> /dev/null; then
-    # Use timeout with --preserve-status to properly propagate exit codes
-    # The environment variables are already exported, so they will be inherited
-    timeout --preserve-status "${TIMEOUT_MINUTES}m" eval "$COPILOT_CMD"
+    # Use timeout with bash -c, passing environment variables via export within the subshell
+    timeout --preserve-status "${TIMEOUT_MINUTES}m" bash -c "
+        export GH_TOKEN=\"\$GH_TOKEN\"
+        export GITHUB_TOKEN=\"\$GITHUB_TOKEN\"
+        export COPILOT_GITHUB_TOKEN=\"\$COPILOT_GITHUB_TOKEN\"
+        $COPILOT_CMD
+    "
 else
     # Fallback for systems without timeout command
     eval "$COPILOT_CMD"
