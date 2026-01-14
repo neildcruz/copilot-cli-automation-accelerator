@@ -349,6 +349,7 @@ function Set-GitHubAuth {
     if (-not [string]::IsNullOrEmpty($token)) {
         $env:GH_TOKEN = $token
         $env:GITHUB_TOKEN = $token
+        $env:COPILOT_GITHUB_TOKEN = $token
         Write-Log "GitHub token configured for authentication"
     } else {
         Write-Log "No GitHub token provided, relying on existing GitHub CLI authentication"
@@ -549,6 +550,7 @@ try {
     if (-not [string]::IsNullOrEmpty($script:GithubToken)) {
         $env:GH_TOKEN = $script:GithubToken
         $env:GITHUB_TOKEN = $script:GithubToken
+        $env:COPILOT_GITHUB_TOKEN = $script:GithubToken
     }
     
     # Execute with timeout using System.Diagnostics.Process for streaming output

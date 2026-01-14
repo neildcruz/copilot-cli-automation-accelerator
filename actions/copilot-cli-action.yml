@@ -99,6 +99,7 @@ jobs:
     env:
       GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      COPILOT_GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
     steps:
       # Step 1: Checkout code
@@ -107,7 +108,13 @@ jobs:
         with:
           fetch-depth: 0
 
-      # Step 2: Install Copilot CLI Automation Suite
+      # Step 2: Setup Node.js 22 (required by Copilot CLI)
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      # Step 3: Install Copilot CLI Automation Suite
       - name: Install Copilot CLI Automation Suite
         shell: bash
         env:
@@ -132,7 +139,7 @@ jobs:
           echo "🔍 Verifying installation..."
           ls -la copilot-cli-automation-accelerator/automation/
 
-      # Step 3: Run Copilot CLI with prompts
+      # Step 4: Run Copilot CLI with prompts
       - name: Run Copilot CLI
         id: run-copilot-cli
         shell: bash

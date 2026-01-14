@@ -271,6 +271,7 @@ setup_github_auth() {
     if [[ -n "$token" ]]; then
         export GH_TOKEN="$token"
         export GITHUB_TOKEN="$token"
+        export COPILOT_GITHUB_TOKEN="$token"
         log "GitHub token configured for authentication"
     else
         log "No GitHub token provided, relying on existing GitHub CLI authentication"
