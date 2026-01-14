@@ -110,13 +110,11 @@ jobs:
       # Step 2: Install Copilot CLI Automation Suite
       - name: Install Copilot CLI Automation Suite
         shell: bash
-        env:
-          INSTALL_SCRIPT_URL: https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.sh
         run: |
-          echo "📦 Downloading and running install script..."
+          echo "📦 Running install script from checked out repository..."
           
-          # Download and execute install script with authentication
-          curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "$INSTALL_SCRIPT_URL" | bash
+          # Run the install script directly from the checked out repository
+          bash install.sh
           
           echo "✅ Copilot CLI Automation Suite installed successfully"
           
