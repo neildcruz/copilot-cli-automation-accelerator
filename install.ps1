@@ -96,6 +96,68 @@ function Test-GitHubAuthentication {
     return $false
 }
 
+function Test-NodeInstalled {
+    <#
+    .SYNOPSIS
+        Check if Node.js is installed and meets version requirements
+    .OUTPUTS
+        Hashtable with IsInstalled, Version, and MeetsRequirement properties
+    #>
+    try {
+        $nodeVersion = & node --version 2>$null
+        if ($nodeVersion) {
+            $version = [version]($nodeVersion.TrimStart('v').Split('.')[0..2] -join '.')
+            return @{
+                IsInstalled = $true
+                Version = $nodeVersion
+                MeetsRequirement = ($version.Major -ge 20)
+            }
+        }
+    }
+    catch {
+        # Node.js not available
+    }
+    
+    return @{
+        IsInstalled = $false
+        Version = $null
+        MeetsRequirement = $false
+    }
+}
+
+function Test-CopilotCliInstalled {
+    <#
+    .SYNOPSIS
+        Check if GitHub Copilot CLI (@github/copilot) is installed globally
+    .OUTPUTS
+        Boolean indicating if Copilot CLI is installed
+    #>
+    
+    # First try running the copilot command directly (fastest)
+    try {
+        $null = & copilot --version 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            return $true
+        }
+    }
+    catch {
+        # Command not found
+    }
+    
+    # Fall back to checking npm global packages
+    try {
+        $npmList = & npm list -g @github/copilot --depth=0 2>$null
+        if ($npmList -match '@github/copilot@') {
+            return $true
+        }
+    }
+    catch {
+        # npm not available or package not installed
+    }
+    
+    return $false
+}
+
 function Test-RepositoryVisibility {
     param(
         [string]$Repository
@@ -539,20 +601,97 @@ function Show-PostInstallInstructions {
     Write-Host $InstallPath -ForegroundColor White
     Write-Host ""
     
-    Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
-    Write-Host "  1. Configure GitHub Authentication:" -ForegroundColor White
-    Write-Host "     • GitHub CLI: " -ForegroundColor Gray -NoNewline
-    Write-Host "gh auth login" -ForegroundColor Yellow
-    Write-Host "     • OR set environment variable: " -ForegroundColor Gray -NoNewline
-    Write-Host "`$env:GITHUB_TOKEN = 'your_token'" -ForegroundColor Yellow
+    # Check current state of prerequisites
+    $hasGitHubAuth = Test-GitHubAuthentication
+    $nodeStatus = Test-NodeInstalled
+    $hasCopilotCli = Test-CopilotCliInstalled
+    
+    # Show status of already-configured items
+    $allConfigured = $true
+    Write-Host "✅ Prerequisites Status:" -ForegroundColor Cyan
+    
+    if ($hasGitHubAuth) {
+        Write-Host "  ✓ GitHub Authentication: " -ForegroundColor Green -NoNewline
+        Write-Host "Configured" -ForegroundColor White
+    } else {
+        Write-Host "  ○ GitHub Authentication: " -ForegroundColor Yellow -NoNewline
+        Write-Host "Not configured" -ForegroundColor Gray
+        $allConfigured = $false
+    }
+    
+    if ($nodeStatus.IsInstalled -and $nodeStatus.MeetsRequirement) {
+        Write-Host "  ✓ Node.js: " -ForegroundColor Green -NoNewline
+        Write-Host "$($nodeStatus.Version) (meets requirements)" -ForegroundColor White
+    } elseif ($nodeStatus.IsInstalled) {
+        Write-Host "  ⚠ Node.js: " -ForegroundColor Yellow -NoNewline
+        Write-Host "$($nodeStatus.Version) (version 20+ recommended)" -ForegroundColor Gray
+        $allConfigured = $false
+    } else {
+        Write-Host "  ○ Node.js: " -ForegroundColor Yellow -NoNewline
+        Write-Host "Not installed" -ForegroundColor Gray
+        $allConfigured = $false
+    }
+    
+    if ($hasCopilotCli) {
+        Write-Host "  ✓ GitHub Copilot CLI: " -ForegroundColor Green -NoNewline
+        Write-Host "Installed" -ForegroundColor White
+    } else {
+        Write-Host "  ○ GitHub Copilot CLI: " -ForegroundColor Yellow -NoNewline
+        Write-Host "Not installed" -ForegroundColor Gray
+        $allConfigured = $false
+    }
     Write-Host ""
     
-    Write-Host "  2. Install GitHub Copilot CLI (if not already installed):" -ForegroundColor White
-    Write-Host "     " -ForegroundColor Gray -NoNewline
-    Write-Host "npm install -g @github/copilot" -ForegroundColor Yellow
-    Write-Host ""
+    # Dynamic step numbering for remaining tasks
+    $stepNumber = 1
+    $hasSteps = $false
     
-    Write-Host "  3. Customize configuration:" -ForegroundColor White
+    # Only show steps that are needed
+    if (-not $hasGitHubAuth) {
+        if (-not $hasSteps) {
+            Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
+            $hasSteps = $true
+        }
+        Write-Host "  $stepNumber. Configure GitHub Authentication:" -ForegroundColor White
+        Write-Host "     • GitHub CLI: " -ForegroundColor Gray -NoNewline
+        Write-Host "gh auth login" -ForegroundColor Yellow
+        Write-Host "     • OR set environment variable: " -ForegroundColor Gray -NoNewline
+        Write-Host "`$env:GITHUB_TOKEN = 'your_token'" -ForegroundColor Yellow
+        Write-Host ""
+        $stepNumber++
+    }
+    
+    if (-not $nodeStatus.IsInstalled) {
+        if (-not $hasSteps) {
+            Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
+            $hasSteps = $true
+        }
+        Write-Host "  $stepNumber. Install Node.js 20+:" -ForegroundColor White
+        Write-Host "     Download from: " -ForegroundColor Gray -NoNewline
+        Write-Host "https://nodejs.org/" -ForegroundColor Yellow
+        Write-Host ""
+        $stepNumber++
+    }
+    
+    if (-not $hasCopilotCli) {
+        if (-not $hasSteps) {
+            Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
+            $hasSteps = $true
+        }
+        Write-Host "  $stepNumber. Install GitHub Copilot CLI:" -ForegroundColor White
+        Write-Host "     " -ForegroundColor Gray -NoNewline
+        Write-Host "npm install -g @github/copilot" -ForegroundColor Yellow
+        Write-Host ""
+        $stepNumber++
+    }
+    
+    # Always show configuration and test steps
+    if (-not $hasSteps) {
+        Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
+        $hasSteps = $true
+    }
+    
+    Write-Host "  $stepNumber. Customize configuration:" -ForegroundColor White
     Write-Host "     • Edit: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/copilot-cli.properties')" -ForegroundColor Yellow
     Write-Host "     • Customize default prompts: " -ForegroundColor Gray -NoNewline
@@ -562,8 +701,9 @@ function Show-PostInstallInstructions {
     Write-Host "     • Review example configurations in: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/examples/')" -ForegroundColor Yellow
     Write-Host ""
+    $stepNumber++
     
-    Write-Host "  4. Test the installation:" -ForegroundColor White
+    Write-Host "  $stepNumber. Test the installation:" -ForegroundColor White
     if ($IsWindows -or $env:OS -eq "Windows_NT") {
         Write-Host "     " -ForegroundColor Gray -NoNewline
         Write-Host "cd '$InstallPath'; .\automation\copilot-cli.ps1 -h" -ForegroundColor Yellow
