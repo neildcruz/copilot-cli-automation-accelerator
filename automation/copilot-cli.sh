@@ -255,16 +255,17 @@ setup_github_auth() {
     
     # Determine which token to use (in order of precedence)
     local token=""
+    local source=""
     
     if [[ -n "$GITHUB_TOKEN" ]]; then
         token="$GITHUB_TOKEN"
-        log "Using GitHub token from command line argument"
+        source="GITHUB_TOKEN environment variable"
     elif [[ -n "$COPILOT_GITHUB_TOKEN" ]]; then
         token="$COPILOT_GITHUB_TOKEN"
-        log "Using GitHub token from COPILOT_GITHUB_TOKEN environment variable"
+        source="COPILOT_GITHUB_TOKEN environment variable"
     elif [[ -n "$GH_TOKEN" ]]; then
         token="$GH_TOKEN"
-        log "Using GitHub token from GH_TOKEN environment variable"
+        source="GH_TOKEN environment variable"
     fi
     
     # Set the environment variable for Copilot CLI if we have a token
@@ -272,7 +273,8 @@ setup_github_auth() {
         export GH_TOKEN="$token"
         export GITHUB_TOKEN="$token"
         export COPILOT_GITHUB_TOKEN="$token"
-        log "GitHub token configured for authentication"
+        log "GitHub token configured from $source"
+        log "Token length: ${#token} characters"
     else
         log "No GitHub token provided, relying on existing GitHub CLI authentication"
     fi
@@ -558,15 +560,18 @@ fi
 # Execute the command with timeout
 log "Executing Copilot CLI command..."
 
-# Get the current directory to preserve context
-current_dir=$(pwd)
+# Debug: Show that tokens are set (without revealing them)
+log "GH_TOKEN is set: $([ -n "$GH_TOKEN" ] && echo 'yes' || echo 'no')"
+log "GITHUB_TOKEN is set: $([ -n "$GITHUB_TOKEN" ] && echo 'yes' || echo 'no')"
+log "COPILOT_GITHUB_TOKEN is set: $([ -n "$COPILOT_GITHUB_TOKEN" ] && echo 'yes' || echo 'no')"
 
-# Explicitly pass auth environment variables to ensure they're available in subshell
+# Explicitly export auth environment variables
 export GH_TOKEN GITHUB_TOKEN COPILOT_GITHUB_TOKEN
 
 if command -v timeout &> /dev/null; then
-    # Pass environment variables explicitly to the subshell
-    timeout "${TIMEOUT_MINUTES}m" bash -c "export GH_TOKEN='$GH_TOKEN' GITHUB_TOKEN='$GITHUB_TOKEN' COPILOT_GITHUB_TOKEN='$COPILOT_GITHUB_TOKEN'; cd '$current_dir' && $COPILOT_CMD"
+    # Use timeout with --preserve-status to properly propagate exit codes
+    # The environment variables are already exported, so they will be inherited
+    timeout --preserve-status "${TIMEOUT_MINUTES}m" eval "$COPILOT_CMD"
 else
     # Fallback for systems without timeout command
     eval "$COPILOT_CMD"
