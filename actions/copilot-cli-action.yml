@@ -1,0 +1,189 @@
+# GitHub Copilot CLI Automation Action
+# Reusable workflow that installs and runs GitHub Copilot CLI with configurable prompts
+#
+# Usage:
+#   jobs:
+#     copilot-analysis:
+#       uses: ./.github/workflows/copilot-cli-action.yml
+#       with:
+#         system_prompt: "Focus on security issues"
+#         user_prompt: "Review the code for vulnerabilities"
+#       secrets: inherit
+
+name: Copilot CLI Automation
+
+on:
+  workflow_call:
+    inputs:
+      system_prompt:
+        description: 'System prompt with guidelines for AI behavior'
+        required: false
+        type: string
+        default: |
+          You are a helpful AI assistant. Follow best practices and provide clear, actionable feedback.
+      user_prompt:
+        description: 'User prompt describing the task to perform'
+        required: false
+        type: string
+        default: |
+          Analyze the codebase and provide a summary of the project structure.
+      copilot_cli_properties:
+        description: 'Contents of the copilot-cli.properties configuration file'
+        required: false
+        type: string
+        default: |
+          # GitHub Copilot CLI Configuration Properties
+          # Core Configuration
+          copilot.model=claude-sonnet-4.5
+          auto.install.cli=true
+          
+          # Tool Permissions
+          allow.all.tools=true
+          allow.all.paths=false
+          
+          # Directory Access
+          working.directory=.
+          
+          # Logging and Execution
+          log.level=info
+          timeout.minutes=30
+          node.version=22
+    outputs:
+      copilot_output:
+        description: 'The output from GitHub Copilot CLI execution'
+        value: ${{ jobs.run-copilot.outputs.copilot_output }}
+
+  workflow_dispatch:
+    inputs:
+      system_prompt:
+        description: 'System prompt with guidelines for AI behavior'
+        required: false
+        type: string
+        default: |
+          You are a helpful AI assistant. Follow best practices and provide clear, actionable feedback.
+      user_prompt:
+        description: 'User prompt describing the task to perform'
+        required: false
+        type: string
+        default: |
+          Analyze the codebase and provide a summary of the project structure.
+      copilot_cli_properties:
+        description: 'Contents of the copilot-cli.properties configuration file'
+        required: false
+        type: string
+        default: |
+          # GitHub Copilot CLI Configuration Properties
+          # Core Configuration
+          copilot.model=claude-sonnet-4.5
+          auto.install.cli=true
+          
+          # Tool Permissions
+          allow.all.tools=true
+          allow.all.paths=false
+          
+          # Directory Access
+          working.directory=.
+          
+          # Logging and Execution
+          log.level=info
+          timeout.minutes=30
+          node.version=22
+
+jobs:
+  run-copilot:
+    name: Run Copilot CLI
+    runs-on: ubuntu-latest
+    outputs:
+      copilot_output: ${{ steps.run-copilot-cli.outputs.copilot_output }}
+
+    env:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    steps:
+      # Step 1: Checkout code
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Step 2: Install Copilot CLI Automation Suite
+      - name: Install Copilot CLI Automation Suite
+        shell: bash
+        env:
+          INSTALL_SCRIPT_URL: https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.sh
+        run: |
+          echo "📦 Downloading and running install script..."
+          
+          # Download and execute install script with authentication
+          curl -fsSL -H "Authorization: Bearer $GITHUB_TOKEN" "$INSTALL_SCRIPT_URL" | bash
+          
+          echo "✅ Copilot CLI Automation Suite installed successfully"
+          
+          # Write the copilot-cli.properties configuration
+          echo "📝 Writing copilot-cli.properties configuration..."
+          cat << 'EOF' > copilot-cli-automation-accelerator/automation/copilot-cli.properties
+          ${{ inputs.copilot_cli_properties }}
+          EOF
+          
+          echo "✅ Configuration written successfully"
+          
+          # Verify installation
+          echo "🔍 Verifying installation..."
+          ls -la copilot-cli-automation-accelerator/automation/
+
+      # Step 3: Run Copilot CLI with prompts
+      - name: Run Copilot CLI
+        id: run-copilot-cli
+        shell: bash
+        run: |
+          echo "🚀 Running GitHub Copilot CLI..."
+          
+          # Navigate to the automation directory
+          cd copilot-cli-automation-accelerator/automation
+          
+          # Make script executable
+          chmod +x copilot-cli.sh
+          
+          # Create temporary files for prompts to handle multi-line content
+          SYSTEM_PROMPT_FILE=$(mktemp)
+          USER_PROMPT_FILE=$(mktemp)
+          
+          cat << 'SYSTEM_EOF' > "$SYSTEM_PROMPT_FILE"
+          ${{ inputs.system_prompt }}
+          SYSTEM_EOF
+          
+          cat << 'USER_EOF' > "$USER_PROMPT_FILE"
+          ${{ inputs.user_prompt }}
+          USER_EOF
+          
+          # Run the copilot-cli.sh script with prompts from files
+          # Capture output to both console and variable
+          OUTPUT_FILE=$(mktemp)
+          
+          ./copilot-cli.sh \
+            --system-prompt-file "$SYSTEM_PROMPT_FILE" \
+            --prompt-file "$USER_PROMPT_FILE" \
+            --config copilot-cli.properties \
+            --verbose 2>&1 | tee "$OUTPUT_FILE"
+          
+          EXIT_CODE=${PIPESTATUS[0]}
+          
+          # Clean up temp files
+          rm -f "$SYSTEM_PROMPT_FILE" "$USER_PROMPT_FILE"
+          
+          # Read and set output
+          # GitHub Actions has a limit on output size, so we truncate if necessary
+          OUTPUT=$(cat "$OUTPUT_FILE")
+          rm -f "$OUTPUT_FILE"
+          
+          # Set output using GITHUB_OUTPUT (handles multi-line)
+          {
+            echo 'copilot_output<<COPILOT_OUTPUT_EOF'
+            echo "$OUTPUT"
+            echo 'COPILOT_OUTPUT_EOF'
+          } >> "$GITHUB_OUTPUT"
+          
+          echo "✅ Copilot CLI execution completed with exit code: $EXIT_CODE"
+          
+          exit $EXIT_CODE

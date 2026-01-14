@@ -1,0 +1,71 @@
+# Example Workflow: AI Code Review with Copilot CLI
+# 
+# This workflow performs AI-powered code review on pull requests
+# using the Copilot CLI Automation Action.
+#
+# Copy this file to .github/workflows/ in your repository to use it.
+
+name: AI Code Review
+
+on:
+  pull_request:
+    branches: [main, develop]
+  
+  workflow_dispatch:
+    inputs:
+      custom_prompt:
+        description: 'Optional custom review instructions'
+        required: false
+        type: string
+
+jobs:
+  code-review:
+    name: AI Code Review
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      system_prompt: |
+        You are an expert code reviewer with deep knowledge of software engineering best practices.
+        Focus on:
+        - Code quality and maintainability
+        - Potential bugs and edge cases
+        - Performance implications
+        - Security considerations
+        - Adherence to coding standards
+        
+        Provide constructive feedback with specific suggestions for improvement.
+        Format your response with clear sections for each category of feedback.
+      user_prompt: |
+        Review the code changes in this repository.
+        
+        Please analyze:
+        1. The overall code structure and organization
+        2. Any potential bugs or issues
+        3. Performance optimizations that could be made
+        4. Security vulnerabilities to address
+        5. Code style and best practices
+        
+        Provide a summary with actionable recommendations.
+        
+        ${{ github.event.inputs.custom_prompt }}
+      copilot_cli_properties: |
+        # Code Review Configuration
+        copilot.model=claude-sonnet-4.5
+        auto.install.cli=true
+        allow.all.tools=true
+        allow.all.paths=false
+        working.directory=.
+        log.level=info
+        timeout.minutes=30
+    secrets: inherit
+
+  display-results:
+    name: Display Review Results
+    needs: code-review
+    if: always() && needs.code-review.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Code Review Results
+        run: |
+          echo "## 📝 Code Review Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "${{ needs.code-review.outputs.copilot_output }}" >> $GITHUB_STEP_SUMMARY

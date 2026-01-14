@@ -1,0 +1,99 @@
+# Example Workflow: AI Security Analysis with Copilot CLI
+# 
+# This workflow performs AI-powered security analysis
+# using the Copilot CLI Automation Action.
+#
+# Copy this file to .github/workflows/ in your repository to use it.
+
+name: AI Security Analysis
+
+on:
+  push:
+    branches: [main, develop]
+  
+  pull_request:
+    branches: [main]
+  
+  # Run on a schedule (e.g., weekly security scans)
+  schedule:
+    - cron: '0 0 * * 0'  # Every Sunday at midnight
+  
+  workflow_dispatch:
+    inputs:
+      scan_depth:
+        description: 'Depth of security scan'
+        required: true
+        type: choice
+        options:
+          - quick
+          - standard
+          - comprehensive
+        default: 'standard'
+
+jobs:
+  security-analysis:
+    name: AI Security Analysis
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      system_prompt: |
+        You are a security expert specializing in application security and vulnerability assessment.
+        Focus exclusively on security-related issues:
+        - Authentication and authorization flaws
+        - Input validation and sanitization
+        - Injection vulnerabilities (SQL, XSS, Command, etc.)
+        - Sensitive data exposure
+        - Security misconfigurations
+        - Dependency vulnerabilities
+        - Cryptographic weaknesses
+        - Access control issues
+        
+        Rate each finding by severity: Critical, High, Medium, Low.
+        Provide remediation steps for each vulnerability found.
+        Include references to OWASP, CWE, or CVE where applicable.
+      user_prompt: |
+        Perform a comprehensive security analysis of this codebase.
+        
+        Scan for:
+        1. OWASP Top 10 vulnerabilities
+        2. Hardcoded secrets or credentials
+        3. Insecure dependencies
+        4. Authentication/authorization issues
+        5. Data validation problems
+        6. Insecure cryptographic implementations
+        7. Logging and monitoring gaps
+        8. API security issues
+        
+        Generate a security report with:
+        - Executive summary
+        - Detailed findings with severity ratings
+        - Remediation recommendations
+        - Priority order for fixes
+      copilot_cli_properties: |
+        # Security Analysis Configuration
+        copilot.model=claude-sonnet-4.5
+        auto.install.cli=true
+        allow.all.tools=true
+        allow.all.paths=false
+        working.directory=.
+        log.level=info
+        timeout.minutes=45
+    secrets: inherit
+
+  display-results:
+    name: Display Security Results
+    needs: security-analysis
+    if: always() && needs.security-analysis.result == 'success'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Display Security Analysis Results
+        run: |
+          echo "## 🔒 Security Analysis Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "${{ needs.security-analysis.outputs.copilot_output }}" >> $GITHUB_STEP_SUMMARY
+      
+      - name: Check for Critical Findings
+        run: |
+          OUTPUT="${{ needs.security-analysis.outputs.copilot_output }}"
+          if echo "$OUTPUT" | grep -qi "critical"; then
+            echo "::warning::Critical security findings detected! Please review immediately."
+          fi
