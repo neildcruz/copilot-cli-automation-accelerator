@@ -376,7 +376,6 @@ download_file() {
     local is_required="$3"
     local is_private="$4"
     
-    local url="https://raw.githubusercontent.com/$REPOSITORY/$BRANCH/$file_path"
     local destination_dir
     destination_dir=$(dirname "$destination_path")
     
@@ -385,7 +384,7 @@ download_file() {
         mkdir -p "$destination_dir"
     fi
     
-    # Prepare authentication for raw.githubusercontent.com
+    # Prepare authentication token
     local token=""
     if [[ "$is_private" == "private" ]]; then
         token="$GITHUB_TOKEN"
@@ -399,41 +398,67 @@ download_file() {
         fi
     fi
     
-    # Download file using curl or wget
+    # For private repositories, use GitHub API instead of raw.githubusercontent.com
+    # as raw URLs don't support Authorization headers properly for private repos
     local success=false
     
-    if command -v curl >/dev/null 2>&1; then
-        # For raw.githubusercontent.com, use token as basic auth with curl
-        if [[ -n "$token" ]]; then
+    if [[ "$is_private" == "private" ]]; then
+        # Use GitHub Contents API for private repositories
+        local api_url="https://api.github.com/repos/$REPOSITORY/contents/$file_path?ref=$BRANCH"
+        
+        if command -v curl >/dev/null 2>&1; then
+            # Get file content from API and decode base64
             if [[ "$VERBOSE" == true ]]; then
-                curl -fsSL --connect-timeout 30 --max-time 60 -H "Authorization: token $token" "$url" -o "$destination_path"
+                local response
+                response=$(curl -fsSL --connect-timeout 30 --max-time 60 \
+                    -H "Authorization: token $token" \
+                    -H "Accept: application/vnd.github.v3.raw" \
+                    "$api_url")
+                success=$?
+                if [[ $success -eq 0 ]]; then
+                    echo "$response" > "$destination_path"
+                fi
             else
-                curl -fsSL --connect-timeout 30 --max-time 60 -H "Authorization: token $token" "$url" -o "$destination_path" 2>/dev/null
+                curl -fsSL --connect-timeout 30 --max-time 60 \
+                    -H "Authorization: token $token" \
+                    -H "Accept: application/vnd.github.v3.raw" \
+                    "$api_url" -o "$destination_path" 2>/dev/null
+                success=$?
             fi
-        else
+        elif command -v wget >/dev/null 2>&1; then
+            # wget version
+            if [[ "$VERBOSE" == true ]]; then
+                wget --timeout=30 --tries=3 \
+                    --header="Authorization: token $token" \
+                    --header="Accept: application/vnd.github.v3.raw" \
+                    "$api_url" -O "$destination_path"
+            else
+                wget --timeout=30 --tries=3 \
+                    --header="Authorization: token $token" \
+                    --header="Accept: application/vnd.github.v3.raw" \
+                    "$api_url" -O "$destination_path" >/dev/null 2>&1
+            fi
+            success=$?
+        fi
+    else
+        # For public repositories, use raw.githubusercontent.com
+        local url="https://raw.githubusercontent.com/$REPOSITORY/$BRANCH/$file_path"
+        
+        if command -v curl >/dev/null 2>&1; then
             if [[ "$VERBOSE" == true ]]; then
                 curl -fsSL --connect-timeout 30 --max-time 60 "$url" -o "$destination_path"
             else
                 curl -fsSL --connect-timeout 30 --max-time 60 "$url" -o "$destination_path" 2>/dev/null
             fi
-        fi
-        success=$?
-    elif command -v wget >/dev/null 2>&1; then
-        # For raw.githubusercontent.com, use token in header with wget
-        if [[ -n "$token" ]]; then
-            if [[ "$VERBOSE" == true ]]; then
-                wget --timeout=30 --tries=3 --header="Authorization: token $token" "$url" -O "$destination_path"
-            else
-                wget --timeout=30 --tries=3 --header="Authorization: token $token" "$url" -O "$destination_path" >/dev/null 2>&1
-            fi
-        else
+            success=$?
+        elif command -v wget >/dev/null 2>&1; then
             if [[ "$VERBOSE" == true ]]; then
                 wget --timeout=30 --tries=3 "$url" -O "$destination_path"
             else
                 wget --timeout=30 --tries=3 "$url" -O "$destination_path" >/dev/null 2>&1
             fi
+            success=$?
         fi
-        success=$?
     fi
     
     if [[ $success -eq 0 ]]; then
