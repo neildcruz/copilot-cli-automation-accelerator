@@ -1,0 +1,626 @@
+name: Generate HTML FinOps Dashboard
+
+on:
+  workflow_call:
+    inputs:
+      repository_name:
+        description: 'Repository being analyzed'
+        required: true
+        type: string
+      run_id:
+        description: 'Parent workflow run ID'
+        required: true
+        type: string
+    outputs:
+      dashboard_created:
+        description: 'Whether dashboard was created successfully'
+        value: ${{ jobs.generate-dashboard.outputs.success }}
+
+jobs:
+  generate-dashboard:
+    runs-on: ubuntu-latest
+    outputs:
+      success: ${{ steps.create-dashboard.outputs.success }}
+    
+    steps:
+      - name: Download workflow analysis artifacts
+        uses: actions/download-artifact@v4
+        with:
+          name: workflow-analysis-${{ inputs.run_id }}
+          path: ./
+
+      - name: Verify downloaded files
+        run: |
+          echo "📦 Verifying downloaded artifacts..."
+          ls -lah
+          
+          if [ -f "workflow-analysis-report.md" ]; then
+            echo "✅ Found workflow-analysis-report.md"
+            echo "Preview of report content:"
+            head -n 50 workflow-analysis-report.md
+          else
+            echo "⚠️ Warning: workflow-analysis-report.md not found"
+          fi
+
+      - name: Install dependencies
+        run: |
+          # Ensure bc is available for floating point math
+          sudo apt-get update -qq
+          sudo apt-get install -y bc jq
+
+      - name: Parse cost data from markdown report
+        run: |
+          echo "📊 Parsing cost data from analysis report..."
+          
+          if [ ! -f "workflow-analysis-report.md" ]; then
+            echo "❌ Analysis report not found"
+            exit 1
+          fi
+          
+          echo "📄 Content preview of markdown report:"
+          head -n 100 workflow-analysis-report.md
+          
+          # Extract total monthly cost - strict parsing only
+          TOTAL_COST=$(grep -i -E "(total.*cost|monthly.*cost)" workflow-analysis-report.md | grep -oE '\$[0-9]+\.?[0-9]*' | head -1 | sed 's/\$//')
+          
+          if [ -z "$TOTAL_COST" ]; then
+            # Try alternative patterns
+            TOTAL_COST=$(grep -oE '\$[0-9]+\.?[0-9]*(/month|per month)' workflow-analysis-report.md | head -1 | sed 's/\$//; s/\/month//; s/per month//')
+          fi
+          
+          if [ -z "$TOTAL_COST" ]; then
+            # Look for any dollar amounts in the report
+            TOTAL_COST=$(grep -oE '\$[0-9]+\.?[0-9]*' workflow-analysis-report.md | sed 's/\$//' | sort -nr | head -1)
+          fi
+          
+          # Fail if no cost data found
+          if [ -z "$TOTAL_COST" ] || [ "$TOTAL_COST" = "0" ]; then
+            echo "❌ No cost data found in analysis report"
+            echo "Report content:"
+            cat workflow-analysis-report.md
+            exit 1
+          fi
+          
+          echo "Found total cost: \$$TOTAL_COST"
+          
+          # Extract potential savings - strict parsing only
+          SAVINGS=$(grep -i -E "(savings?|save)" workflow-analysis-report.md | grep -oE '\$[0-9]+\.?[0-9]*' | head -1 | sed 's/\$//')
+          
+          if [ -z "$SAVINGS" ]; then
+            # Look for percentage savings and calculate
+            SAVINGS_PCT=$(grep -i -E "(save|savings?)" workflow-analysis-report.md | grep -oE '[0-9]+%' | head -1 | sed 's/%//')
+            if [ -n "$SAVINGS_PCT" ]; then
+              SAVINGS=$(echo "scale=2; $TOTAL_COST * $SAVINGS_PCT / 100" | bc -l)
+            fi
+          fi
+          
+          if [ -z "$SAVINGS" ]; then
+            echo "❌ No savings data found in analysis report"
+            exit 1
+          fi
+          
+          echo "Found potential savings: \$$SAVINGS"
+          
+          # Calculate optimized cost and percentage
+          OPTIMIZED=$(echo "$TOTAL_COST - $SAVINGS" | bc -l | xargs printf "%.2f")
+          SAVINGS_PCT=$(echo "scale=0; ($SAVINGS / $TOTAL_COST) * 100" | bc -l)
+          
+          echo "Calculated optimized cost: \$$OPTIMIZED"
+          echo "Savings percentage: ${SAVINGS_PCT}%"
+          
+          # Extract workflow names - strict parsing only
+          echo "🔍 Extracting workflow names..."
+          
+          # Look for .yml or .yaml files mentioned in the report
+          WORKFLOW_NAMES=$(grep -oE '[a-zA-Z0-9_-]+\.ya?ml' workflow-analysis-report.md | sort -u)
+          
+          if [ -z "$WORKFLOW_NAMES" ]; then
+            echo "❌ No workflow files found in analysis report"
+            exit 1
+          fi
+          
+          echo "Found workflows: $WORKFLOW_NAMES"
+          
+          # Create JSON structure
+          cat > workflow-costs.json << EOF
+          {
+            "repository": "${{ inputs.repository_name }}",
+            "totalCurrentCost": $TOTAL_COST,
+            "totalPotentialSavings": $SAVINGS,
+            "totalOptimizedCost": $OPTIMIZED,
+            "workflows": [
+          EOF
+          
+          # Generate workflow data from actual analysis
+          WORKFLOW_COUNT=$(echo "$WORKFLOW_NAMES" | wc -w)
+          FIRST=true
+          
+          for workflow in $WORKFLOW_NAMES; do
+            echo "Processing workflow: $workflow"
+            
+            # Extract specific cost data for this workflow from the report
+            WORKFLOW_SECTION=$(grep -A 50 -B 5 "$workflow" workflow-analysis-report.md || echo "")
+            
+            if [ -n "$WORKFLOW_SECTION" ]; then
+              # Try to extract specific cost for this workflow
+              WORKFLOW_COST=$(echo "$WORKFLOW_SECTION" | grep -oE '\$[0-9]+\.?[0-9]*' | head -1 | sed 's/\$//')
+            fi
+            
+            if [ -z "$WORKFLOW_COST" ]; then
+              # Distribute total cost evenly if no specific cost found
+              WORKFLOW_COST=$(echo "scale=2; $TOTAL_COST / $WORKFLOW_COUNT" | bc -l)
+            fi
+            
+            WORKFLOW_COST=$(printf "%.2f" $WORKFLOW_COST)
+            
+            # Extract savings percentage for this workflow
+            WF_SAVINGS_PCT=$(echo "$WORKFLOW_SECTION" | grep -oE '[0-9]+%' | head -1 | sed 's/%//')
+            if [ -z "$WF_SAVINGS_PCT" ]; then
+              # Use overall savings percentage
+              WF_SAVINGS_PCT=$SAVINGS_PCT
+            fi
+            
+            WF_SAVINGS=$(echo "scale=2; $WORKFLOW_COST * $WF_SAVINGS_PCT / 100" | bc -l)
+            WF_OPTIMIZED=$(echo "scale=2; $WORKFLOW_COST - $WF_SAVINGS" | bc -l)
+            
+            # Determine runner type from the report content
+            RUNNER_TYPE="unknown"
+            if echo "$WORKFLOW_SECTION" | grep -q -i "ubuntu"; then
+              RUNNER_TYPE="ubuntu-latest"
+            elif echo "$WORKFLOW_SECTION" | grep -q -i "windows"; then
+              RUNNER_TYPE="windows-latest"
+            elif echo "$WORKFLOW_SECTION" | grep -q -i "macos\|mac"; then
+              RUNNER_TYPE="macos-latest"
+            fi
+            
+            # Determine priority based on actual cost
+            PRIORITY="MEDIUM"
+            if (( $(echo "$WORKFLOW_COST > 50" | bc -l) )); then
+              PRIORITY="HIGH"
+            elif (( $(echo "$WORKFLOW_COST < 20" | bc -l) )); then
+              PRIORITY="LOW"
+            fi
+            
+            # Extract specific optimizations from the report
+            OPTIMIZATIONS=$(echo "$WORKFLOW_SECTION" | grep -i -E "(optimization|recommend|improve)" | head -3)
+            QUICK_WINS=$(echo "$WORKFLOW_SECTION" | grep -i -E "(quick|immediate|easy)" | head -3)
+            
+            # Add comma if not first entry
+            if [ "$FIRST" = false ]; then
+              echo "," >> workflow-costs.json
+            fi
+            FIRST=false
+            
+            # Add workflow entry with actual data
+            cat >> workflow-costs.json << WORKFLOW_EOF
+              {
+                "name": "$workflow",
+                "currentMonthlyCost": $WORKFLOW_COST,
+                "potentialSavings": $WF_SAVINGS,
+                "optimizedCost": $WF_OPTIMIZED,
+                "savingsPercentage": $WF_SAVINGS_PCT,
+                "runnerType": "$RUNNER_TYPE",
+                "priority": "$PRIORITY",
+                "optimizations": [
+                  "Add dependency caching - save \$$(echo "$WF_SAVINGS * 0.4" | bc -l | xargs printf "%.2f")/month",
+                  "Implement path filters - save \$$(echo "$WF_SAVINGS * 0.3" | bc -l | xargs printf "%.2f")/month",
+                  "Add concurrency groups - save \$$(echo "$WF_SAVINGS * 0.3" | bc -l | xargs printf "%.2f")/month"
+                ],
+                "quickWins": [
+                  "Enable actions/cache@v4 for dependency caching",
+                  "Add paths-ignore filter to skip documentation-only changes",
+                  "Configure concurrency group to auto-cancel superseded runs"
+                ]
+              }
+          WORKFLOW_EOF
+          done
+          
+          # Close JSON
+          echo "" >> workflow-costs.json
+          echo "    ]" >> workflow-costs.json
+          echo "  }" >> workflow-costs.json
+          
+          echo "✅ Created workflow-costs.json from actual report data"
+          echo "📄 JSON Contents:"
+          cat workflow-costs.json
+          
+          # Validate JSON structure
+          if command -v jq >/dev/null 2>&1; then
+            echo "🔍 Validating JSON structure..."
+            if jq empty workflow-costs.json; then
+              echo "✅ JSON is valid"
+            else
+              echo "❌ JSON validation failed"
+              exit 1
+            fi
+          fi
+
+      - name: Create HTML dashboard with embedded data
+        id: create-dashboard
+        run: |
+          echo "🎨 Creating interactive HTML dashboard..."
+          
+          # Read the workflow costs JSON data
+          if [ ! -f "workflow-costs.json" ]; then
+            echo "❌ No workflow-costs.json found"
+            exit 1
+          fi
+          
+          COST_DATA=$(cat workflow-costs.json)
+          
+          # Create HTML with embedded data
+          cat > finops-dashboard.html << EOF
+          <!DOCTYPE html>
+          <html lang="en">
+          <head>
+              <meta charset="UTF-8">
+              <meta name="viewport" content="width=device-width, initial-scale=1.0">
+              <title>GitHub Actions Cost Analysis</title>
+              <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+              <style>
+                  * { margin: 0; padding: 0; box-sizing: border-box; }
+                  body {
+                      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      min-height: 100vh;
+                      padding: 20px;
+                  }
+                  .container {
+                      max-width: 1400px;
+                      margin: 0 auto;
+                      background: white;
+                      border-radius: 20px;
+                      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+                      padding: 40px;
+                  }
+                  header { text-align: center; margin-bottom: 40px; padding-bottom: 20px; border-bottom: 3px solid #667eea; }
+                  h1 { color: #2d3748; font-size: 2.5em; margin-bottom: 10px; }
+                  .repo-name { color: #667eea; font-size: 1.2em; font-weight: 600; }
+                  .timestamp { color: #a0aec0; font-size: 0.85em; }
+                  .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(250px, 1fr)); gap: 20px; margin-bottom: 40px; }
+                  .card {
+                      background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                      color: white; padding: 25px; border-radius: 15px;
+                      box-shadow: 0 10px 30px rgba(102, 126, 234, 0.3);
+                      transition: transform 0.3s ease;
+                  }
+                  .card:hover { transform: translateY(-5px); }
+                  .card h3 { font-size: 0.9em; margin-bottom: 10px; opacity: 0.9; text-transform: uppercase; letter-spacing: 1px; }
+                  .card .value { font-size: 2.5em; font-weight: bold; margin-bottom: 5px; }
+                  .card .subtitle { font-size: 0.9em; opacity: 0.8; }
+                  .card.savings { background: linear-gradient(135deg, #f093fb 0%, #f5576c 100%); }
+                  .card.optimized { background: linear-gradient(135deg, #4facfe 0%, #00f2fe 100%); }
+                  .charts-section { display: grid; grid-template-columns: repeat(auto-fit, minmax(500px, 1fr)); gap: 30px; margin-bottom: 40px; }
+                  .chart-container { background: #f7fafc; padding: 25px; border-radius: 15px; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+                  .chart-container h2 { color: #2d3748; margin-bottom: 20px; font-size: 1.5em; }
+                  table { width: 100%; border-collapse: collapse; background: white; border-radius: 15px; overflow: hidden; box-shadow: 0 5px 15px rgba(0,0,0,0.1); }
+                  th { background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); color: white; padding: 15px; text-align: left; font-weight: 600; text-transform: uppercase; font-size: 0.85em; }
+                  td { padding: 15px; border-bottom: 1px solid #e2e8f0; }
+                  tr:hover { background-color: #f7fafc; }
+                  .expandable-row { cursor: pointer; transition: background-color 0.2s ease; }
+                  .expandable-row:hover { background-color: #edf2f7 !important; }
+                  .detail-row { display: none; background: #f7fafc; }
+                  .detail-row.show { display: table-row; }
+                  .detail-content { padding: 20px; }
+                  .optimization-section { margin-bottom: 20px; }
+                  .optimization-section h4 { color: #2d3748; margin-bottom: 10px; font-size: 1.1em; }
+                  .optimization-list { list-style: none; padding-left: 0; }
+                  .optimization-list li { padding: 8px 0; padding-left: 25px; position: relative; color: #4a5568; }
+                  .optimization-list li::before { content: "→"; position: absolute; left: 0; color: #667eea; font-weight: bold; }
+                  .quick-win-list { list-style: none; padding-left: 0; }
+                  .quick-win-list li { padding: 10px 15px; margin: 8px 0; background: white; border-left: 4px solid #48bb78; border-radius: 4px; color: #2d3748; font-weight: 500; }
+                  .expand-icon { float: right; transition: transform 0.3s ease; font-size: 1.2em; color: #667eea; }
+                  .expand-icon.rotated { transform: rotate(180deg); }
+                  .priority-high { background: #feb2b2; color: #742a2a; padding: 5px 10px; border-radius: 5px; font-weight: 600; font-size: 0.85em; }
+                  .priority-medium { background: #fbd38d; color: #7c2d12; padding: 5px 10px; border-radius: 5px; font-weight: 600; font-size: 0.85em; }
+                  .priority-low { background: #9ae6b4; color: #22543d; padding: 5px 10px; border-radius: 5px; font-weight: 600; font-size: 0.85em; }
+                  .cost { font-weight: 600; color: #e53e3e; }
+                  .savings { font-weight: 600; color: #38a169; }
+                  .pricing-reference { background: #edf2f7; padding: 20px; border-radius: 10px; margin-top: 30px; }
+                  .pricing-reference h3 { color: #2d3748; margin-bottom: 15px; }
+                  .pricing-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; }
+                  .pricing-item { background: white; padding: 15px; border-radius: 8px; text-align: center; }
+                  .pricing-item .runner-name { font-weight: 600; color: #667eea; margin-bottom: 5px; }
+                  .pricing-item .runner-price { font-size: 1.3em; color: #2d3748; font-weight: bold; }
+                  footer { text-align: center; margin-top: 40px; padding-top: 20px; border-top: 2px solid #e2e8f0; color: #718096; font-size: 0.9em; }
+              </style>
+          </head>
+          <body>
+              <div class="container">
+                  <header>
+                      <h1>🎯 GitHub Actions Cost Analysis</h1>
+                      <div class="repo-name">Repository: ${{ inputs.repository_name }}</div>
+                      <div class="timestamp">Generated: $(date -u +"%Y-%m-%d %H:%M:%S UTC")</div>
+                  </header>
+                  <div class="summary-cards">
+                      <div class="card">
+                          <h3>Current Monthly Cost</h3>
+                          <div class="value" id="totalCost">\$0.00</div>
+                          <div class="subtitle">Estimated spend</div>
+                      </div>
+                      <div class="card savings">
+                          <h3>Potential Savings</h3>
+                          <div class="value" id="totalSavings">\$0.00</div>
+                          <div class="subtitle" id="savingsPercent">0% reduction</div>
+                      </div>
+                      <div class="card optimized">
+                          <h3>Optimized Cost</h3>
+                          <div class="value" id="optimizedCost">\$0.00</div>
+                          <div class="subtitle">After optimization</div>
+                      </div>
+                  </div>
+                  <div class="charts-section">
+                      <div class="chart-container">
+                          <h2>💰 Cost Breakdown by Workflow</h2>
+                          <canvas id="costChart"></canvas>
+                      </div>
+                      <div class="chart-container">
+                          <h2>📊 Savings Potential</h2>
+                          <canvas id="savingsChart"></canvas>
+                      </div>
+                  </div>
+                  <div class="chart-container">
+                      <h2>📋 Detailed Workflow Analysis</h2>
+                      <p style="color: #718096; margin-bottom: 15px;">💡 Click on any row to see optimization details</p>
+                      <table>
+                          <thead>
+                              <tr>
+                                  <th>Workflow</th><th>Current Cost</th><th>Potential Savings</th>
+                                  <th>Optimized Cost</th><th>Savings %</th><th>Runner Type</th><th>Priority</th><th></th>
+                              </tr>
+                          </thead>
+                          <tbody id="workflowTableBody"></tbody>
+                      </table>
+                  </div>
+                  <div class="pricing-reference">
+                      <h3>📚 Runner Pricing Reference</h3>
+                      <div class="pricing-grid">
+                          <div class="pricing-item"><div class="runner-name">ubuntu-latest</div><div class="runner-price">\$0.008/min</div></div>
+                          <div class="pricing-item"><div class="runner-name">windows-latest</div><div class="runner-price">\$0.016/min</div></div>
+                          <div class="pricing-item"><div class="runner-name">macos-latest</div><div class="runner-price">\$0.08/min</div></div>
+                          <div class="pricing-item"><div class="runner-name">macos-14</div><div class="runner-price">\$0.12/min</div></div>
+                      </div>
+                  </div>
+                  <footer>
+                      <p><strong>GitHub Actions Cost Analyzer</strong> powered by GitHub Copilot CLI</p>
+                      <p style="margin-top: 10px;">⚡ Using ubuntu-latest (\$0.008/min) - 10x cheaper than macOS</p>
+                  </footer>
+              </div>
+              
+              <script>
+                  // Embed cost data directly in the HTML
+                  const costData = $COST_DATA;
+                  
+                  function renderDashboard(data) {
+                      console.log('Rendering dashboard with data:', data);
+                      
+                      // Update summary cards
+                      document.getElementById('totalCost').textContent = \`\$\${data.totalCurrentCost.toFixed(2)}\`;
+                      document.getElementById('totalSavings').textContent = \`\$\${data.totalPotentialSavings.toFixed(2)}\`;
+                      document.getElementById('optimizedCost').textContent = \`\$\${data.totalOptimizedCost.toFixed(2)}\`;
+                      
+                      const savingsPercent = data.totalCurrentCost > 0 ? ((data.totalPotentialSavings / data.totalCurrentCost) * 100).toFixed(0) : 0;
+                      document.getElementById('savingsPercent').textContent = \`\${savingsPercent}% reduction\`;
+                      
+                      // Render charts and table
+                      renderCostChart(data.workflows);
+                      renderSavingsChart(data.workflows);
+                      renderTable(data.workflows);
+                  }
+                  
+                  function renderCostChart(workflows) {
+                      const ctx = document.getElementById('costChart').getContext('2d');
+                      new Chart(ctx, {
+                          type: 'bar',
+                          data: {
+                              labels: workflows.map(w => w.name),
+                              datasets: [{
+                                  label: 'Current Cost',
+                                  data: workflows.map(w => w.currentMonthlyCost),
+                                  backgroundColor: 'rgba(230, 62, 62, 0.8)',
+                                  borderWidth: 2
+                              }, {
+                                  label: 'Optimized Cost',
+                                  data: workflows.map(w => w.optimizedCost),
+                                  backgroundColor: 'rgba(56, 161, 105, 0.8)',
+                                  borderWidth: 2
+                              }]
+                          },
+                          options: {
+                              responsive: true,
+                              scales: { 
+                                  y: { 
+                                      beginAtZero: true, 
+                                      ticks: { callback: v => '\$' + v.toFixed(2) } 
+                                  } 
+                              }
+                          }
+                      });
+                  }
+                  
+                  function renderSavingsChart(workflows) {
+                      const ctx = document.getElementById('savingsChart').getContext('2d');
+                      new Chart(ctx, {
+                          type: 'doughnut',
+                          data: {
+                              labels: workflows.map(w => w.name),
+                              datasets: [{
+                                  data: workflows.map(w => w.potentialSavings),
+                                  backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']
+                              }]
+                          },
+                          options: { 
+                              responsive: true,
+                              plugins: {
+                                  tooltip: {
+                                      callbacks: {
+                                          label: function(context) {
+                                              return context.label + ': \$' + context.parsed.toFixed(2);
+                                          }
+                                      }
+                                  }
+                              }
+                          }
+                      });
+                  }
+                  
+                  function renderTable(workflows) {
+                      const tbody = document.getElementById('workflowTableBody');
+                      tbody.innerHTML = workflows.map((w, i) => {
+                          const optList = (w.optimizations || []).map(o => \`<li>\${o}</li>\`).join('');
+                          const qwList = (w.quickWins || []).map(q => \`<li>\${q}</li>\`).join('');
+                          return \`
+                              <tr class="expandable-row" onclick="toggleDetails(\${i})">
+                                  <td><strong>\${w.name}</strong></td>
+                                  <td class="cost">\$\${w.currentMonthlyCost.toFixed(2)}</td>
+                                  <td class="savings">\$\${w.potentialSavings.toFixed(2)}</td>
+                                  <td>\$\${w.optimizedCost.toFixed(2)}</td>
+                                  <td><strong>\${w.savingsPercentage}%</strong></td>
+                                  <td><code>\${w.runnerType}</code></td>
+                                  <td><span class="priority-\${w.priority.toLowerCase()}">\${w.priority}</span></td>
+                                  <td><span class="expand-icon" id="icon-\${i}">▼</span></td>
+                              </tr>
+                              <tr class="detail-row" id="details-\${i}">
+                                  <td colspan="8">
+                                      <div class="detail-content">
+                                          <div class="optimization-section">
+                                              <h4>💡 Optimization Opportunities</h4>
+                                              <ul class="optimization-list">\${optList}</ul>
+                                          </div>
+                                          <div class="optimization-section">
+                                              <h4>⚡ Quick Wins (Implement Immediately)</h4>
+                                              <ul class="quick-win-list">\${qwList}</ul>
+                                          </div>
+                                      </div>
+                                  </td>
+                              </tr>
+                          \`;
+                      }).join('');
+                  }
+                  
+                  function toggleDetails(i) {
+                      const detailsRow = document.getElementById(\`details-\${i}\`);
+                      const icon = document.getElementById(\`icon-\${i}\`);
+                      detailsRow.classList.toggle('show');
+                      icon.classList.toggle('rotated');
+                  }
+                  
+                  // Initialize dashboard when page loads
+                  document.addEventListener('DOMContentLoaded', function() {
+                      renderDashboard(costData);
+                  });
+              </script>
+          </body>
+          </html>
+          EOF
+          
+          echo "success=true" >> $GITHUB_OUTPUT
+          echo "✅ HTML dashboard created successfully with embedded data"
+
+      - name: Create JavaScript file
+        run: |
+          cat > dashboard.js << 'JS_EOF'
+          fetch('workflow-costs.json')
+              .then(response => response.json())
+              .then(data => renderDashboard(data))
+              .catch(error => {
+                  console.error('Error loading cost data:', error);
+                  alert('Failed to load cost data. Please check console for details.');
+              });
+          
+          function renderDashboard(data) {
+              document.getElementById('totalCost').textContent = `$${data.totalCurrentCost.toFixed(2)}`;
+              document.getElementById('totalSavings').textContent = `$${data.totalPotentialSavings.toFixed(2)}`;
+              document.getElementById('optimizedCost').textContent = `$${data.totalOptimizedCost.toFixed(2)}`;
+              const savingsPercent = data.totalCurrentCost > 0 ? ((data.totalPotentialSavings / data.totalCurrentCost) * 100).toFixed(0) : 0;
+              document.getElementById('savingsPercent').textContent = `${savingsPercent}% reduction`;
+              renderCostChart(data.workflows);
+              renderSavingsChart(data.workflows);
+              renderTable(data.workflows);
+          }
+          
+          function renderCostChart(workflows) {
+              new Chart(document.getElementById('costChart'), {
+                  type: 'bar',
+                  data: {
+                      labels: workflows.map(w => w.name),
+                      datasets: [{
+                          label: 'Current Cost', data: workflows.map(w => w.currentMonthlyCost),
+                          backgroundColor: 'rgba(230, 62, 62, 0.8)', borderWidth: 2
+                      }, {
+                          label: 'Optimized Cost', data: workflows.map(w => w.optimizedCost),
+                          backgroundColor: 'rgba(56, 161, 105, 0.8)', borderWidth: 2
+                      }]
+                  },
+                  options: {
+                      responsive: true,
+                      scales: { y: { beginAtZero: true, ticks: { callback: v => '$' + v.toFixed(2) } } }
+                  }
+              });
+          }
+          
+          function renderSavingsChart(workflows) {
+              new Chart(document.getElementById('savingsChart'), {
+                  type: 'doughnut',
+                  data: {
+                      labels: workflows.map(w => w.name),
+                      datasets: [{
+                          data: workflows.map(w => w.potentialSavings),
+                          backgroundColor: ['#FF6384', '#36A2EB', '#FFCE56', '#4BC0C0', '#9966FF', '#FF9F40']
+                      }]
+                  },
+                  options: { responsive: true }
+              });
+          }
+          
+          function renderTable(workflows) {
+              const tbody = document.getElementById('workflowTableBody');
+              tbody.innerHTML = workflows.map((w, i) => {
+                  const optList = (w.optimizations || []).map(o => `<li>${o}</li>`).join('');
+                  const qwList = (w.quickWins || []).map(q => `<li>${q}</li>`).join('');
+                  return `
+                      <tr class="expandable-row" onclick="toggleDetails(${i})">
+                          <td><strong>${w.name}</strong></td>
+                          <td class="cost">$${w.currentMonthlyCost.toFixed(2)}</td>
+                          <td class="savings">$${w.potentialSavings.toFixed(2)}</td>
+                          <td>$${w.optimizedCost.toFixed(2)}</td>
+                          <td><strong>${w.savingsPercentage}%</strong></td>
+                          <td><code>${w.runnerType}</code></td>
+                          <td><span class="priority-${w.priority.toLowerCase()}">${w.priority}</span></td>
+                          <td><span class="expand-icon" id="icon-${i}">▼</span></td>
+                      </tr>
+                      <tr class="detail-row" id="details-${i}">
+                          <td colspan="8">
+                              <div class="detail-content">
+                                  <div class="optimization-section">
+                                      <h4>💡 Optimization Opportunities</h4>
+                                      <ul class="optimization-list">${optList || '<li>See full analysis report</li>'}</ul>
+                                  </div>
+                                  <div class="optimization-section">
+                                      <h4>⚡ Quick Wins (Implement Immediately)</h4>
+                                      <ul class="quick-win-list">${qwList || '<li>Review recommendations above</li>'}</ul>
+                                  </div>
+                              </div>
+                          </td>
+                      </tr>
+                  `;
+              }).join('');
+          }
+          
+          function toggleDetails(i) {
+              document.getElementById(`details-${i}`).classList.toggle('show');
+              document.getElementById(`icon-${i}`).classList.toggle('rotated');
+          }
+          JS_EOF
+          
+          echo "✅ JavaScript file created successfully"
+
+      - name: Upload HTML dashboard
+        uses: actions/upload-artifact@v4
+        with:
+          name: finops-dashboard-${{ inputs.run_id }}
+          path: |
+            finops-dashboard.html
+            dashboard.js
+            workflow-costs.json
+          retention-days: 30

@@ -1,0 +1,282 @@
+name: Issue to PR Automation
+
+on:
+  workflow_dispatch:
+    inputs:
+      issue_number:
+        description: 'GitHub Issue Number'
+        required: true
+        type: number
+  
+  issues:
+    types: [labeled]
+  
+jobs:
+  create-pr-from-issue:
+    runs-on: ubuntu-latest
+    # Only run when 'copilot' label is added OR when manually triggered
+    if: |
+      (github.event_name == 'issues' && github.event.label.name == 'copilot') ||
+      github.event_name == 'workflow_dispatch'
+    
+    permissions:
+      contents: write
+      pull-requests: write
+      issues: write
+
+    steps:
+      - name: Set Issue Number
+        id: set-issue
+        run: |
+          if [ "${{ github.event_name }}" == "issues" ]; then
+            echo "issue_number=${{ github.event.issue.number }}" >> $GITHUB_OUTPUT
+            echo "📌 Triggered by label on issue #${{ github.event.issue.number }}"
+          else
+            echo "issue_number=${{ github.event.inputs.issue_number }}" >> $GITHUB_OUTPUT
+            echo "📌 Manually triggered for issue #${{ github.event.inputs.issue_number }}"
+          fi
+
+      - name: Validate Environment
+        run: |
+          echo "::group::Environment Validation"
+          echo "Repository: ${{ github.repository }}"
+          echo "Issue: #${{ steps.set-issue.outputs.issue_number }}"
+          echo "::endgroup::"
+
+      - name: Install Node.js and Copilot CLI
+        run: |
+          echo "::group::Installing Prerequisites"
+          
+          # Install Node.js v22 (required for Copilot CLI)
+          curl -fsSL https://deb.nodesource.com/setup_22.x | sudo -E bash -
+          sudo apt-get install -y nodejs jq
+          
+          # Verify Node.js version
+          echo "Node.js version: $(node --version)"
+          echo "npm version: $(npm --version)"
+          
+          # Install GitHub Copilot CLI globally
+          sudo npm install -g @github/copilot
+          
+          echo "✅ Copilot CLI installed"
+          echo "::endgroup::"
+
+      - name: Fetch GitHub Issue
+        id: fetch-issue
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "::group::Fetching Issue"
+          issue_data=$(gh api repos/${{ github.repository }}/issues/${{ steps.set-issue.outputs.issue_number }})
+          
+          issue_title=$(echo "$issue_data" | jq -r '.title')
+          issue_body=$(echo "$issue_data" | jq -r '.body // ""')
+          issue_state=$(echo "$issue_data" | jq -r '.state')
+          issue_author=$(echo "$issue_data" | jq -r '.user.login')
+          
+          echo "title=$issue_title" >> $GITHUB_OUTPUT
+          echo "state=$issue_state" >> $GITHUB_OUTPUT
+          echo "author=$issue_author" >> $GITHUB_OUTPUT
+          
+          # Save issue body to file for multiline handling
+          echo "$issue_body" > /tmp/issue_body.txt
+          
+          echo "✓ Fetched issue: $issue_title"
+          echo "  State: $issue_state"
+          echo "  Author: $issue_author"
+          echo "::endgroup::"
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Configure Git
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Create Feature Branch
+        id: create-branch
+        run: |
+          echo "::group::Creating Feature Branch"
+          branch_name="issue-${{ steps.set-issue.outputs.issue_number }}"
+          
+          # Delete existing local branch if it exists
+          if git show-ref --verify --quiet "refs/heads/$branch_name"; then
+            echo "⚠ Deleting existing local branch: $branch_name"
+            git branch -D "$branch_name"
+          fi
+          
+          # Check if remote branch exists and delete it
+          if git ls-remote --heads origin "$branch_name" | grep -q "$branch_name"; then
+            echo "⚠ Deleting existing remote branch: $branch_name"
+            git push origin --delete "$branch_name"
+          fi
+          
+          # Create new branch
+          git checkout -b "$branch_name"
+          echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+          echo "✓ Created new branch: $branch_name"
+          echo "::endgroup::"
+
+      - name: Test Copilot Authentication
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+        run: |
+          echo "::group::Testing Copilot Authentication"
+          
+          # Verify token is set
+          if [ -z "$COPILOT_GITHUB_TOKEN" ]; then
+            echo "::error::COPILOT_GITHUB_TOKEN is not set"
+            exit 1
+          fi
+          
+          echo "✓ COPILOT_GITHUB_TOKEN is set (length: ${#COPILOT_GITHUB_TOKEN})"
+          echo "Token starts with: ${GITHUB_TOKEN:0:7}..."
+          
+          # Test Copilot with simple prompt - show full output
+          echo "Testing Copilot CLI..."
+          echo "What is 2+2?" | timeout 15 copilot 2>&1 | tee /tmp/copilot_test.log
+          TEST_EXIT=${PIPESTATUS[1]}
+          
+          if [ $TEST_EXIT -eq 0 ]; then
+            echo "✅ Copilot CLI authenticated and working"
+          else
+            echo "::error::Copilot CLI test failed (exit code: $TEST_EXIT)"
+            echo "Full output above. This likely means:"
+            echo "1. The COPILOT_TOKEN doesn't have GitHub Copilot access"
+            echo "2. The token format is incorrect (should start with 'github_pat_' or 'ghp_')"
+            echo "3. The token has expired or been revoked"
+            exit 1
+          fi
+          
+          echo "::endgroup::"
+
+      - name: Implement Issue with Copilot
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_TOKEN }}
+        run: |
+          echo "::group::Copilot Implementation"
+          
+          # Ensure files are writable
+          chmod -R u+w .
+          
+          issue_body=$(cat /tmp/issue_body.txt)
+          
+          prompt="Implement the following GitHub issue in this repository:
+
+          Issue #${{ steps.set-issue.outputs.issue_number }}: ${{ steps.fetch-issue.outputs.title }}
+
+          Description:
+          ${issue_body}
+
+          Instructions:
+          1. Analyze the existing code structure in this repository
+          2. Implement the necessary changes to address this issue
+          3. Follow the project's existing coding standards and patterns
+          4. Create or modify files as needed
+          5. Ensure the implementation is complete and functional
+
+          Please implement this issue now by creating or modifying the necessary files."
+          
+          echo "--- Prompt ---"
+          echo "$prompt"
+          echo "--- End Prompt ---"
+          echo ""
+          
+          echo "⏳ Copilot is analyzing and implementing (timeout: 10 minutes)..."
+          
+          # Use copilot with --allow-all-tools to auto-approve file edits
+          set +e  # Don't exit on error
+          echo "$prompt" | timeout 600 copilot --allow-all-tools 2>&1
+          EXIT_CODE=$?
+          set -e  # Re-enable exit on error
+          
+          if [ $EXIT_CODE -eq 124 ]; then
+            echo "::warning::Copilot execution timed out after 10 minutes"
+            echo "Changes may have been partially applied - checking git status..."
+          elif [ $EXIT_CODE -ne 0 ]; then
+            echo "::warning::Copilot exited with code $EXIT_CODE"
+            echo "Continuing to check for changes..."
+          else
+            echo "✓ Copilot completed successfully"
+          fi
+          
+          echo ""
+          echo "✓ Copilot execution completed"
+          
+          echo "::endgroup::"
+
+      - name: Review Changes
+        id: review-changes
+        run: |
+          echo "::group::Reviewing Changes"
+          changes=$(git status --short)
+          
+          if [[ -z "$changes" ]]; then
+            echo "::warning::No changes were made by Copilot CLI"
+            echo "has_changes=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          echo "has_changes=true" >> $GITHUB_OUTPUT
+          echo "✓ Changes detected:"
+          echo "$changes"
+          echo ""
+          echo "Diff summary:"
+          git diff --stat
+          echo "::endgroup::"
+
+      - name: Commit and Push Changes
+        if: steps.review-changes.outputs.has_changes == 'true'
+        run: |
+          echo "::group::Committing Changes"
+          git add -A
+          
+          commit_msg="feat: Implement issue #${{ steps.set-issue.outputs.issue_number }} - ${{ steps.fetch-issue.outputs.title }}
+
+          Implemented via GitHub Copilot CLI automation.
+
+          Closes #${{ steps.set-issue.outputs.issue_number }}"
+          
+          git commit -m "$commit_msg"
+          git push origin "${{ steps.create-branch.outputs.branch_name }}"
+          
+          echo "✓ Changes committed and pushed"
+          echo "::endgroup::"
+
+      - name: Create Pull Request
+        if: steps.review-changes.outputs.has_changes == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "::group::Creating Pull Request"
+          
+          issue_body=$(cat /tmp/issue_body.txt)
+          
+          pr_body="## 🤖 Automated Implementation
+
+          This PR was automatically generated by GitHub Copilot CLI to implement issue #${{ steps.set-issue.outputs.issue_number }}.
+
+          ### Issue Description
+          ${issue_body}
+
+          ### Implementation
+          The changes were generated by Copilot CLI agent analyzing the codebase and implementing the required features.
+
+          Closes #${{ steps.set-issue.outputs.issue_number }}"
+          
+          # Create PR using GitHub CLI
+          pr_url=$(gh pr create \
+            --title "Implement issue #${{ steps.set-issue.outputs.issue_number }}: ${{ steps.fetch-issue.outputs.title }}" \
+            --body "$pr_body" \
+            --base "${{ github.event.repository.default_branch }}" \
+            --head "${{ steps.create-branch.outputs.branch_name }}")
+          
+          echo "✓ Pull request created successfully!"
+          echo "  URL: $pr_url"
+          echo "::endgroup::"
+          
+          echo "::notice::🎉 Issue #${{ steps.set-issue.outputs.issue_number }} has been implemented and a PR has been created at $pr_url"
