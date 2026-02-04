@@ -250,6 +250,39 @@ declare -a FILES_TO_DOWNLOAD=(
     "automation/copilot-cli.properties:required"
     "automation/user.prompt.md:optional"
     "automation/system.prompt.md:optional"
+    # Example agents
+    "automation/examples/README.md:optional"
+    "automation/examples/mcp-config.json:optional"
+    # Code Review Agent
+    "automation/examples/code-review/copilot-cli.properties:optional"
+    "automation/examples/code-review/user.prompt.md:optional"
+    "automation/examples/code-review/system.prompt.md:optional"
+    "automation/examples/code-review/description.txt:optional"
+    # Security Analysis Agent
+    "automation/examples/security-analysis/copilot-cli.properties:optional"
+    "automation/examples/security-analysis/user.prompt.md:optional"
+    "automation/examples/security-analysis/system.prompt.md:optional"
+    "automation/examples/security-analysis/description.txt:optional"
+    # Test Generation Agent
+    "automation/examples/test-generation/copilot-cli.properties:optional"
+    "automation/examples/test-generation/user.prompt.md:optional"
+    "automation/examples/test-generation/system.prompt.md:optional"
+    "automation/examples/test-generation/description.txt:optional"
+    # Documentation Generation Agent
+    "automation/examples/documentation-generation/copilot-cli.properties:optional"
+    "automation/examples/documentation-generation/user.prompt.md:optional"
+    "automation/examples/documentation-generation/system.prompt.md:optional"
+    "automation/examples/documentation-generation/description.txt:optional"
+    # Refactoring Agent
+    "automation/examples/refactoring/copilot-cli.properties:optional"
+    "automation/examples/refactoring/user.prompt.md:optional"
+    "automation/examples/refactoring/system.prompt.md:optional"
+    "automation/examples/refactoring/description.txt:optional"
+    # CI/CD Analysis Agent
+    "automation/examples/cicd-analysis/copilot-cli.properties:optional"
+    "automation/examples/cicd-analysis/user.prompt.md:optional"
+    "automation/examples/cicd-analysis/system.prompt.md:optional"
+    "automation/examples/cicd-analysis/description.txt:optional"
 )
 
 # Check prerequisites

@@ -53,7 +53,9 @@ param(
     [switch]$ShareGist,
     [string]$Resume = "",
     [switch]$Continue,
-    [switch]$Init
+    [switch]$Init,
+    # New: Built-in agent discovery
+    [switch]$ListAgents
 )
 
 # Script directory
@@ -89,10 +91,15 @@ automatic installation, and CI/CD-optimized execution.
 Usage: .\copilot-cli.ps1 [OPTIONS]
 
 QUICK START:
-    .\copilot-cli.ps1 -UsePrompt code-review           # Use pre-built prompt
+    .\copilot-cli.ps1 -Agent code-review               # Use built-in agent
+    .\copilot-cli.ps1 -ListAgents                      # List available agents
     .\copilot-cli.ps1 -Prompt "Review this code"       # Direct prompt
     .\copilot-cli.ps1 -Init                            # Initialize project config
-    .\copilot-cli.ps1 -ListPrompts                     # Browse available prompts
+
+BUILT-IN AGENTS:
+    -ListAgents                    List all available built-in agents
+    -Agent NAME                    Use a built-in agent by name
+                                   Examples: code-review, security-analysis, test-generation
 
 PROMPT REPOSITORY OPTIONS:
     -UsePrompt NAME                Use a prompt from GitHub repository
@@ -625,6 +632,116 @@ Please follow these guidelines:
     Write-Host "Edit these files and run: .\copilot-cli.ps1" -ForegroundColor Cyan
 }
 
+# Function to get built-in agents from examples directory
+function Get-BuiltInAgents {
+    $examplesDir = Join-Path $ScriptDir "examples"
+    $agents = @()
+    
+    if (-not (Test-Path $examplesDir)) {
+        return $agents
+    }
+    
+    Get-ChildItem -Path $examplesDir -Directory | ForEach-Object {
+        $agentDir = $_.FullName
+        $agentName = $_.Name
+        
+        # Check if this is a valid agent directory (has a properties file or prompt files)
+        $hasConfig = (Test-Path (Join-Path $agentDir "copilot-cli.properties")) -or 
+                     (Test-Path (Join-Path $agentDir "*.properties"))
+        $hasPrompt = (Test-Path (Join-Path $agentDir "user.prompt.md")) -or
+                     (Test-Path (Join-Path $agentDir "system.prompt.md"))
+        
+        if ($hasConfig -or $hasPrompt) {
+            $description = ""
+            $descFile = Join-Path $agentDir "description.txt"
+            if (Test-Path $descFile) {
+                $description = (Get-Content $descFile -Raw).Trim()
+            }
+            
+            $agents += [PSCustomObject]@{
+                Name = $agentName
+                Path = $agentDir
+                Description = $description
+            }
+        }
+    }
+    
+    return $agents
+}
+
+# Function to display built-in agents list
+function Show-BuiltInAgents {
+    $agents = Get-BuiltInAgents
+    
+    if ($agents.Count -eq 0) {
+        Write-Host "No built-in agents found in examples directory." -ForegroundColor Yellow
+        return
+    }
+    
+    Write-Host ""
+    Write-Host "Built-in Agents:" -ForegroundColor Green
+    Write-Host ""
+    
+    $maxNameLen = ($agents | ForEach-Object { $_.Name.Length } | Measure-Object -Maximum).Maximum
+    $maxNameLen = [Math]::Max($maxNameLen, 20)
+    
+    foreach ($agent in $agents | Sort-Object Name) {
+        $paddedName = $agent.Name.PadRight($maxNameLen)
+        if ($agent.Description) {
+            Write-Host "  $paddedName  $($agent.Description)" -ForegroundColor White
+        } else {
+            Write-Host "  $paddedName" -ForegroundColor White
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "Usage: -Agent <name>  (e.g., -Agent code-review)" -ForegroundColor Gray
+}
+
+# Function to load a built-in agent configuration
+function Get-BuiltInAgentConfig {
+    param([string]$AgentName)
+    
+    $agents = Get-BuiltInAgents
+    $agent = $agents | Where-Object { $_.Name -eq $AgentName }
+    
+    if (-not $agent) {
+        return $null
+    }
+    
+    $result = @{
+        Path = $agent.Path
+        PropertiesFile = $null
+        UserPromptFile = $null
+        SystemPromptFile = $null
+    }
+    
+    # Look for properties file
+    $propsFile = Join-Path $agent.Path "copilot-cli.properties"
+    if (Test-Path $propsFile) {
+        $result.PropertiesFile = $propsFile
+    } else {
+        # Look for any .properties file
+        $propsFiles = Get-ChildItem -Path $agent.Path -Filter "*.properties" | Select-Object -First 1
+        if ($propsFiles) {
+            $result.PropertiesFile = $propsFiles.FullName
+        }
+    }
+    
+    # Look for prompt files
+    $userPrompt = Join-Path $agent.Path "user.prompt.md"
+    if (Test-Path $userPrompt) {
+        $result.UserPromptFile = $userPrompt
+    }
+    
+    $systemPrompt = Join-Path $agent.Path "system.prompt.md"
+    if (Test-Path $systemPrompt) {
+        $result.SystemPromptFile = $systemPrompt
+    }
+    
+    return $result
+}
+
 # Function to load configuration from properties file
 function Load-Config {
     param([string]$ConfigFile)
@@ -1071,6 +1188,37 @@ try {
     if ($Init) {
         Initialize-CopilotCliProject
         exit 0
+    }
+    
+    # Handle -ListAgents command
+    if ($ListAgents) {
+        Show-BuiltInAgents
+        exit 0
+    }
+    
+    # Handle -Agent: check if it's a built-in agent first
+    if (-not [string]::IsNullOrEmpty($Agent)) {
+        $builtInConfig = Get-BuiltInAgentConfig -AgentName $Agent
+        if ($builtInConfig) {
+            Write-Host "Using built-in agent: $Agent" -ForegroundColor Cyan
+            
+            # Load the agent's properties file if it exists
+            if ($builtInConfig.PropertiesFile) {
+                $Config = $builtInConfig.PropertiesFile
+            }
+            
+            # Set prompt files if not already set
+            if ([string]::IsNullOrEmpty($PromptFile) -and $builtInConfig.UserPromptFile) {
+                $PromptFile = $builtInConfig.UserPromptFile
+            }
+            if ([string]::IsNullOrEmpty($SystemPromptFile) -and $builtInConfig.SystemPromptFile) {
+                $SystemPromptFile = $builtInConfig.SystemPromptFile
+            }
+            
+            # Clear the Agent variable so it doesn't get passed to copilot CLI
+            # (built-in agents are handled via config/prompts, not --agent flag)
+            $Agent = ""
+        }
     }
     
     # Load configuration file

@@ -60,6 +60,7 @@ SHARE_GIST="false"
 RESUME=""
 CONTINUE_SESSION="false"
 INIT="false"
+LIST_AGENTS="false"
 
 # Function to show usage
 show_usage() {
@@ -72,10 +73,15 @@ automatic installation, and CI/CD-optimized execution.
 Usage: ./copilot-cli.sh [OPTIONS]
 
 QUICK START:
-    ./copilot-cli.sh --use-prompt code-review           # Use pre-built prompt
+    ./copilot-cli.sh --agent code-review                # Use built-in agent
+    ./copilot-cli.sh --list-agents                      # List available agents
     ./copilot-cli.sh --prompt "Review this code"        # Direct prompt
     ./copilot-cli.sh --init                             # Initialize project config
-    ./copilot-cli.sh --list-prompts                     # Browse available prompts
+
+BUILT-IN AGENTS:
+    --list-agents                  List all available built-in agents
+    --agent NAME                   Use a built-in agent by name
+                                   Examples: code-review, security-analysis, test-generation
 
 PROMPT REPOSITORY OPTIONS:
     --use-prompt NAME              Use a prompt from GitHub repository
@@ -414,6 +420,113 @@ SYSEOF
     echo "  - ./system.prompt.md"
     echo ""
     echo "Edit these files and run: ./copilot-cli.sh"
+}
+
+# Function to get built-in agents from examples directory
+get_builtin_agents() {
+    local examples_dir="${SCRIPT_DIR}/examples"
+    
+    if [[ ! -d "$examples_dir" ]]; then
+        return
+    fi
+    
+    for agent_dir in "$examples_dir"/*/; do
+        if [[ ! -d "$agent_dir" ]]; then
+            continue
+        fi
+        
+        local agent_name=$(basename "$agent_dir")
+        
+        # Check if this is a valid agent directory
+        local has_config=false
+        local has_prompt=false
+        
+        if [[ -f "${agent_dir}copilot-cli.properties" ]] || ls "${agent_dir}"*.properties &>/dev/null; then
+            has_config=true
+        fi
+        
+        if [[ -f "${agent_dir}user.prompt.md" ]] || [[ -f "${agent_dir}system.prompt.md" ]]; then
+            has_prompt=true
+        fi
+        
+        if [[ "$has_config" == "true" ]] || [[ "$has_prompt" == "true" ]]; then
+            local description=""
+            if [[ -f "${agent_dir}description.txt" ]]; then
+                description=$(cat "${agent_dir}description.txt" | head -1)
+            fi
+            echo "${agent_name}|${description}"
+        fi
+    done
+}
+
+# Function to display built-in agents list
+show_builtin_agents() {
+    local agents
+    agents=$(get_builtin_agents)
+    
+    if [[ -z "$agents" ]]; then
+        echo "No built-in agents found in examples directory."
+        return
+    fi
+    
+    echo ""
+    echo "Built-in Agents:"
+    echo ""
+    
+    # Find max name length for formatting
+    local max_len=20
+    while IFS='|' read -r name desc; do
+        if [[ ${#name} -gt $max_len ]]; then
+            max_len=${#name}
+        fi
+    done <<< "$agents"
+    
+    # Display agents
+    while IFS='|' read -r name desc; do
+        printf "  %-${max_len}s  %s\n" "$name" "$desc"
+    done <<< "$agents" | sort
+    
+    echo ""
+    echo "Usage: --agent <name>  (e.g., --agent code-review)"
+}
+
+# Function to check if agent is a built-in agent and get its config
+get_builtin_agent_config() {
+    local agent_name="$1"
+    local examples_dir="${SCRIPT_DIR}/examples"
+    local agent_dir="${examples_dir}/${agent_name}"
+    
+    if [[ ! -d "$agent_dir" ]]; then
+        return 1
+    fi
+    
+    # Export configuration paths
+    BUILTIN_AGENT_PATH="$agent_dir"
+    BUILTIN_AGENT_PROPS=""
+    BUILTIN_AGENT_USER_PROMPT=""
+    BUILTIN_AGENT_SYSTEM_PROMPT=""
+    
+    # Look for properties file
+    if [[ -f "${agent_dir}/copilot-cli.properties" ]]; then
+        BUILTIN_AGENT_PROPS="${agent_dir}/copilot-cli.properties"
+    else
+        local props_file
+        props_file=$(ls "${agent_dir}"/*.properties 2>/dev/null | head -1)
+        if [[ -n "$props_file" ]]; then
+            BUILTIN_AGENT_PROPS="$props_file"
+        fi
+    fi
+    
+    # Look for prompt files
+    if [[ -f "${agent_dir}/user.prompt.md" ]]; then
+        BUILTIN_AGENT_USER_PROMPT="${agent_dir}/user.prompt.md"
+    fi
+    
+    if [[ -f "${agent_dir}/system.prompt.md" ]]; then
+        BUILTIN_AGENT_SYSTEM_PROMPT="${agent_dir}/system.prompt.md"
+    fi
+    
+    return 0
 }
 
 # Function to load content from file preserving formatting
@@ -1000,6 +1113,10 @@ while [[ $# -gt 0 ]]; do
             INIT="true"
             shift
             ;;
+        --list-agents)
+            LIST_AGENTS="true"
+            shift
+            ;;
         -h|--help)
             show_usage
             exit 0
@@ -1016,6 +1133,35 @@ done
 if [[ "$INIT" == "true" ]]; then
     initialize_project
     exit 0
+fi
+
+# Handle --list-agents command
+if [[ "$LIST_AGENTS" == "true" ]]; then
+    show_builtin_agents
+    exit 0
+fi
+
+# Handle --agent: check if it's a built-in agent first
+if [[ -n "$AGENT" ]]; then
+    if get_builtin_agent_config "$AGENT"; then
+        echo "Using built-in agent: $AGENT"
+        
+        # Load the agent's properties file if it exists
+        if [[ -n "$BUILTIN_AGENT_PROPS" ]]; then
+            CONFIG_FILE="$BUILTIN_AGENT_PROPS"
+        fi
+        
+        # Set prompt files if not already set
+        if [[ -z "$PROMPT_FILE" ]] && [[ -n "$BUILTIN_AGENT_USER_PROMPT" ]]; then
+            PROMPT_FILE="$BUILTIN_AGENT_USER_PROMPT"
+        fi
+        if [[ -z "$SYSTEM_PROMPT_FILE" ]] && [[ -n "$BUILTIN_AGENT_SYSTEM_PROMPT" ]]; then
+            SYSTEM_PROMPT_FILE="$BUILTIN_AGENT_SYSTEM_PROMPT"
+        fi
+        
+        # Clear the AGENT variable so it doesn't get passed to copilot CLI
+        AGENT=""
+    fi
 fi
 
 # Load configuration file

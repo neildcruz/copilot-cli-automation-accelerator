@@ -1,6 +1,8 @@
 # GitHub Copilot CLI Local Scripts
 
-This folder contains shell and PowerShell scripts that provide the same functionality as the GitHub Action but for local execution. These scripts support configuration via properties files and command line arguments.
+> **New here?** Start with [../README.md](../README.md) for a 30-second quick start guide.
+
+Local automation scripts providing the same functionality as the GitHub Action for local execution. Supports configuration via properties files and command line arguments.
 
 ## 📁 Script Files
 
@@ -12,43 +14,17 @@ This folder contains shell and PowerShell scripts that provide the same function
 
 ## 🚀 Quick Start
 
-### Prerequisites
+**Prerequisites:** Node.js 20+, GitHub authentication (`gh auth login` or `GITHUB_TOKEN`). See [../README.md](../README.md) for details.
 
-1. **Node.js 20+** - Required for Copilot CLI
-2. **GitHub Copilot CLI** - Auto-installed by default, or install manually with `npm install -g @github/copilot`
-3. **GitHub Authentication** - Authenticate using one of these methods:
-   - GitHub Personal Access Token (recommended for scripts and CI/CD)
-   - GitHub CLI authentication (`gh auth login`)
-   - Environment variables (`GH_TOKEN` or `GITHUB_TOKEN`)
-
-> **Note**: The scripts will automatically install the latest GitHub Copilot CLI if not found. This can be disabled by setting `auto.install.cli=false` in the properties file or using `--auto-install-cli false`.
-
-### Installation Options
-
-#### Option 1: Central Installation (Recommended)
-Install once and use for multiple projects:
+### Use a Pre-built Agent
 
 ```bash
-# Install to a central location
-mkdir ~/copilot-tools
-cp -r * ~/copilot-tools/
+# List available agents
+./copilot-cli.sh --list-agents
 
-# Use from anywhere by specifying working directory
-~/copilot-tools/copilot-cli.sh \
-  --working-dir /path/to/your/project \
-  --prompt "Review this codebase"
-```
-
-#### Option 2: Per-Project Installation
-Copy to each project for project-specific configurations:
-
-```bash
-# Copy to your project
-cp -r * /your/project/
-cd /your/project
-
-# Use with local configuration
-./copilot-cli.sh --prompt "Review the latest changes"
+# Run an agent
+./copilot-cli.sh --agent code-review
+./copilot-cli.sh --agent security-analysis
 ```
 
 ### Basic Usage
@@ -63,15 +39,6 @@ chmod +x copilot-cli.sh
 
 # With system prompt for guided behavior
 ./copilot-cli.sh --system-prompt "Focus only on security vulnerabilities" --prompt "Review this code"
-
-# With GitHub token authentication
-./copilot-cli.sh --github-token "ghp_xxxxxxxxxxxxxxxxxxxx" --prompt "Review this code"
-
-# Disable auto-install if you prefer manual CLI management
-./copilot-cli.sh --auto-install-cli false --prompt "Review the code"
-
-# With custom configuration
-./copilot-cli.sh --config my-config.properties --prompt "Analyze security"
 ```
 
 #### PowerShell (Windows/Cross-platform)
@@ -79,17 +46,9 @@ chmod +x copilot-cli.sh
 # Basic usage
 .\copilot-cli.ps1 -Prompt "Review the code for issues"
 
-# With system prompt for guided behavior
-.\copilot-cli.ps1 -SystemPrompt "Focus only on security vulnerabilities" -Prompt "Review this code"
-
-# With GitHub token authentication
-.\copilot-cli.ps1 -GithubToken "ghp_xxxxxxxxxxxxxxxxxxxx" -Prompt "Review this code"
-
-# Disable auto-install if you prefer manual CLI management  
-.\copilot-cli.ps1 -AutoInstallCli false -Prompt "Review the code"
-
-# With custom configuration
-.\copilot-cli.ps1 -Config "my-config.properties" -Prompt "Analyze security"
+# Use a pre-built agent
+.\copilot-cli.ps1 -Agent code-review
+.\copilot-cli.ps1 -ListAgents
 ```
 
 ## � Authentication
