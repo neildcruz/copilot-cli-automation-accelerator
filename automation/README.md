@@ -430,6 +430,60 @@ jq . my-mcp-config.json > /dev/null && echo "Valid JSON" || echo "Invalid JSON"
 
 ## 🐛 Troubleshooting
 
+### Quick Diagnostics
+
+Run the built-in diagnostic command to check all prerequisites at once:
+
+```bash
+# Bash
+./copilot-cli.sh --diagnose
+
+# PowerShell
+.\copilot-cli.ps1 -Diagnose
+```
+
+The diagnostic command checks:
+- Node.js version and installation
+- npm availability
+- GitHub Copilot CLI installation
+- GitHub authentication (all token sources)
+- Network connectivity to GitHub API
+- Configuration files validity
+- Built-in agents availability
+
+Example output:
+```
+=========================================
+  GitHub Copilot CLI - System Diagnostics
+=========================================
+
+Node.js:
+  ✓ Version: v22.1.0 (meets requirement >=20)
+  ✓ Path: /usr/local/bin/node
+
+npm:
+  ✓ Version: 10.2.0
+
+GitHub Copilot CLI:
+  ✓ Installed: 1.0.0
+
+GitHub Authentication:
+  ✓ GITHUB_TOKEN: Set (40 chars)
+  ○ GH_TOKEN: Not set
+  ✓ GitHub CLI: Authenticated
+
+Network:
+  ✓ GitHub API: Accessible
+
+Configuration:
+  ✓ Properties file: ./copilot-cli.properties
+  ○ MCP config: Not found (will be skipped)
+
+=========================================
+  Ready to run: YES ✓
+=========================================
+```
+
 ### Common Issues
 
 1. **Command not found: copilot**
@@ -478,8 +532,12 @@ Enable verbose logging:
 
 ### Environment Validation
 
-Check your environment:
+Use the `--diagnose` command for comprehensive validation:
 ```bash
+# Recommended: all-in-one check
+./copilot-cli.sh --diagnose
+
+# Or check components individually:
 # Check Node.js
 node --version
 

@@ -67,6 +67,9 @@ USE_DEFAULTS="false"
 AGENTS=""
 AGENT_ERROR_MODE="continue"
 
+# Diagnostic mode
+DIAGNOSE="false"
+
 # Function to show usage
 show_usage() {
     cat << 'EOF'
@@ -157,6 +160,7 @@ SETUP OPTIONS:
     -t, --github-token TOKEN       GitHub Personal Access Token
     --auto-install-cli BOOL        Auto-install Copilot CLI if not found (default: true)
     --init                         Initialize project with starter configuration
+    --diagnose                     Run comprehensive system check and show status report
     -h, --help                     Show this help message
 
 EXAMPLES:
@@ -180,6 +184,178 @@ log() {
     if [[ "$VERBOSE" == "true" ]]; then
         echo "[$(date '+%Y-%m-%d %H:%M:%S')] $1" >&2
     fi
+}
+
+# Function to run comprehensive system diagnostics
+show_diagnostic_status() {
+    echo ""
+    echo -e "${CYAN}=========================================${NC}"
+    echo -e "${CYAN}  GitHub Copilot CLI - System Diagnostics${NC}"
+    echo -e "${CYAN}=========================================${NC}"
+    echo ""
+    
+    local all_passed=true
+    local warnings=0
+    
+    # 1. Node.js Check
+    echo -e "${YELLOW}Node.js:${NC}"
+    if command -v node &>/dev/null; then
+        local node_version=$(node --version)
+        local major_version=$(echo "$node_version" | sed 's/v//' | cut -d. -f1)
+        if [[ "$major_version" -ge 20 ]]; then
+            echo -e "  ${GREEN}✓ Version: $node_version (meets requirement >=20)${NC}"
+        else
+            echo -e "  ${YELLOW}⚠ Version: $node_version (recommended: >=20)${NC}"
+            ((warnings++))
+        fi
+        local node_path=$(which node)
+        echo -e "  ✓ Path: $node_path"
+    else
+        echo -e "  ${RED}✗ Not installed or not in PATH${NC}"
+        echo -e "    → Install from: ${CYAN}https://nodejs.org/${NC}"
+        all_passed=false
+    fi
+    echo ""
+    
+    # 2. npm Check
+    echo -e "${YELLOW}npm:${NC}"
+    if command -v npm &>/dev/null; then
+        local npm_version=$(npm --version)
+        echo -e "  ${GREEN}✓ Version: $npm_version${NC}"
+    else
+        echo -e "  ${RED}✗ Not available${NC}"
+        all_passed=false
+    fi
+    echo ""
+    
+    # 3. GitHub Copilot CLI Check
+    echo -e "${YELLOW}GitHub Copilot CLI:${NC}"
+    if command -v copilot &>/dev/null; then
+        local copilot_version=$(copilot --version 2>/dev/null || echo "unknown")
+        echo -e "  ${GREEN}✓ Installed: $copilot_version${NC}"
+    else
+        echo -e "  ${RED}✗ Not installed${NC}"
+        echo -e "    → Install with: ${CYAN}npm install -g @github/copilot${NC}"
+        all_passed=false
+    fi
+    echo ""
+    
+    # 4. GitHub Authentication Check
+    echo -e "${YELLOW}GitHub Authentication:${NC}"
+    local has_auth=false
+    
+    if [[ -n "$GITHUB_TOKEN" ]]; then
+        echo -e "  ${GREEN}✓ GITHUB_TOKEN: Set (${#GITHUB_TOKEN} chars)${NC}"
+        has_auth=true
+    else
+        echo -e "  ○ GITHUB_TOKEN: Not set"
+    fi
+    
+    if [[ -n "$GH_TOKEN" ]]; then
+        echo -e "  ${GREEN}✓ GH_TOKEN: Set (${#GH_TOKEN} chars)${NC}"
+        has_auth=true
+    else
+        echo -e "  ○ GH_TOKEN: Not set"
+    fi
+    
+    if [[ -n "$COPILOT_GITHUB_TOKEN" ]]; then
+        echo -e "  ${GREEN}✓ COPILOT_GITHUB_TOKEN: Set${NC}"
+        has_auth=true
+    else
+        echo -e "  ○ COPILOT_GITHUB_TOKEN: Not set"
+    fi
+    
+    if command -v gh &>/dev/null && gh auth token &>/dev/null; then
+        echo -e "  ${GREEN}✓ GitHub CLI: Authenticated${NC}"
+        has_auth=true
+    else
+        echo -e "  ○ GitHub CLI: Not authenticated"
+    fi
+    
+    if [[ "$has_auth" != "true" ]]; then
+        echo -e "  ${YELLOW}⚠ No authentication configured${NC}"
+        echo -e "    → Run: ${CYAN}gh auth login${NC}"
+        echo -e "    → Or set: ${CYAN}export GITHUB_TOKEN='ghp_...'${NC}"
+        ((warnings++))
+    fi
+    echo ""
+    
+    # 5. Network Check
+    echo -e "${YELLOW}Network:${NC}"
+    if curl -s --connect-timeout 5 https://api.github.com &>/dev/null; then
+        echo -e "  ${GREEN}✓ GitHub API: Accessible${NC}"
+    else
+        echo -e "  ${RED}✗ GitHub API: Not accessible${NC}"
+        echo -e "    → Check internet connection or proxy settings"
+        all_passed=false
+    fi
+    
+    if [[ -n "$HTTP_PROXY" ]] || [[ -n "$HTTPS_PROXY" ]]; then
+        echo -e "  ${GREEN}✓ Proxy configured:${NC}"
+        [[ -n "$HTTP_PROXY" ]] && echo "    HTTP_PROXY: $HTTP_PROXY"
+        [[ -n "$HTTPS_PROXY" ]] && echo "    HTTPS_PROXY: $HTTPS_PROXY"
+    fi
+    echo ""
+    
+    # 6. Configuration Check
+    echo -e "${YELLOW}Configuration:${NC}"
+    local config_path="${SCRIPT_DIR}/copilot-cli.properties"
+    if [[ -f "$config_path" ]]; then
+        echo -e "  ${GREEN}✓ Properties file: $config_path${NC}"
+    else
+        echo "  ○ Properties file: Not found (using defaults)"
+    fi
+    
+    local mcp_path="${SCRIPT_DIR}/mcp-config.json"
+    if [[ -f "$mcp_path" ]]; then
+        if command -v jq &>/dev/null && jq . "$mcp_path" &>/dev/null; then
+            echo -e "  ${GREEN}✓ MCP config: $mcp_path (valid JSON)${NC}"
+        else
+            echo -e "  ${RED}✗ MCP config: $mcp_path (invalid JSON)${NC}"
+            all_passed=false
+        fi
+    else
+        echo "  ○ MCP config: Not found (will be skipped)"
+    fi
+    echo ""
+    
+    # 7. Working Directory
+    echo -e "${YELLOW}Working Directory:${NC}"
+    echo -e "  ${GREEN}✓ Current: $(pwd)${NC}"
+    if [[ -d ".git" ]]; then
+        echo -e "  ${GREEN}✓ Git repository detected${NC}"
+    fi
+    echo ""
+    
+    # 8. Built-in Agents
+    echo -e "${YELLOW}Built-in Agents:${NC}"
+    local agents=$(get_builtin_agents)
+    if [[ -n "$agents" ]]; then
+        local agent_count=$(echo "$agents" | wc -l)
+        echo -e "  ${GREEN}✓ Available: $agent_count agents${NC}"
+        echo "$agents" | head -5 | while IFS='|' read -r name desc; do
+            echo "    - $name"
+        done
+        if [[ $agent_count -gt 5 ]]; then
+            echo "    - ... and $((agent_count - 5)) more"
+        fi
+    else
+        echo "  ○ No built-in agents found"
+    fi
+    echo ""
+    
+    # Summary
+    echo -e "${CYAN}=========================================${NC}"
+    if [[ "$all_passed" == "true" ]] && [[ $warnings -eq 0 ]]; then
+        echo -e "  ${GREEN}Ready to run: YES ✓${NC}"
+    elif [[ "$all_passed" == "true" ]]; then
+        echo -e "  ${YELLOW}Ready to run: YES (with $warnings warning(s))${NC}"
+    else
+        echo -e "  ${RED}Ready to run: NO ✗${NC}"
+        echo -e "  ${YELLOW}Fix the issues above and run --diagnose again${NC}"
+    fi
+    echo -e "${CYAN}=========================================${NC}"
+    echo ""
 }
 
 # Function to parse boolean values
@@ -798,13 +974,70 @@ run_agent_queue() {
     [[ $failed -eq 0 ]]
 }
 
+# Function to find and suggest similar files
+find_similar_files() {
+    local file_path="$1"
+    local extensions="${2:-.md .txt}"
+    
+    local directory=$(dirname "$file_path")
+    [[ -z "$directory" || "$directory" == "." ]] && directory="$SCRIPT_DIR"
+    
+    local filename=$(basename "$file_path")
+    local basename="${filename%.*}"
+    
+    local suggestions=()
+    
+    if [[ -d "$directory" ]]; then
+        # Find files with similar extensions
+        for ext in $extensions; do
+            while IFS= read -r -d '' file; do
+                local name=$(basename "$file")
+                suggestions+=("$name")
+            done < <(find "$directory" -maxdepth 1 -type f -name "*${ext}" -print0 2>/dev/null)
+        done
+        
+        # Sort unique and limit to 5
+        printf '%s\n' "${suggestions[@]}" | sort -u | head -5
+    fi
+}
+
+# Function to show file suggestions
+show_file_suggestions() {
+    local file_path="$1"
+    local file_type="$2"
+    local extensions="${3:-.md .txt}"
+    
+    local suggestions=$(find_similar_files "$file_path" "$extensions")
+    
+    if [[ -n "$suggestions" ]]; then
+        echo "" >&2
+        echo -e "${YELLOW}Did you mean one of these?${NC}" >&2
+        while IFS= read -r suggestion; do
+            [[ -n "$suggestion" ]] && echo -e "  ${CYAN}- $suggestion${NC}" >&2
+        done <<< "$suggestions"
+        echo "" >&2
+        echo -e "Tip: Use the correct file path or create the file:" >&2
+        echo -e "  ${CYAN}touch $file_path${NC}" >&2
+    else
+        local directory=$(dirname "$file_path")
+        [[ -z "$directory" || "$directory" == "." ]] && directory="."
+        echo "" >&2
+        echo -e "No similar files found in: $directory" >&2
+        echo -e "${YELLOW}Available files in directory:${NC}" >&2
+        ls -1 "$directory" 2>/dev/null | head -5 | while read -r f; do
+            echo -e "  ${CYAN}- $f${NC}" >&2
+        done
+    fi
+}
+
 # Function to load content from file preserving formatting
 load_file_content() {
     local file_path="$1"
     local content_type="$2"
     
     if [[ ! -f "$file_path" ]]; then
-        echo "Error: $content_type file '$file_path' not found" >&2
+        echo -e "${RED}Error: $content_type file not found: $file_path${NC}" >&2
+        show_file_suggestions "$file_path" "$content_type" ".md .txt"
         exit 1
     fi
     
@@ -1109,7 +1342,8 @@ $PROMPT"
     # Add MCP configuration
     if [[ -n "$MCP_CONFIG_FILE" ]]; then
         if [[ ! -f "$MCP_CONFIG_FILE" ]]; then
-            echo "Error: MCP configuration file '$MCP_CONFIG_FILE' not found" >&2
+            echo -e "${RED}Error: MCP configuration file not found: $MCP_CONFIG_FILE${NC}" >&2
+            show_file_suggestions "$MCP_CONFIG_FILE" "MCP config" ".json"
             exit 1
         fi
         cmd="$cmd --additional-mcp-config @$MCP_CONFIG_FILE"
@@ -1423,6 +1657,10 @@ while [[ $# -gt 0 ]]; do
             USE_DEFAULTS="true"
             shift
             ;;
+        --diagnose)
+            DIAGNOSE="true"
+            shift
+            ;;
         -h|--help)
             show_usage
             exit 0
@@ -1444,6 +1682,12 @@ fi
 # Handle --list-agents command
 if [[ "$LIST_AGENTS" == "true" ]]; then
     show_builtin_agents
+    exit 0
+fi
+
+# Handle --diagnose command
+if [[ "$DIAGNOSE" == "true" ]]; then
+    show_diagnostic_status
     exit 0
 fi
 

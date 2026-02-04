@@ -61,7 +61,9 @@ param(
     # New: Multi-agent composition
     [string]$Agents = "",
     [ValidateSet("continue", "stop")]
-    [string]$AgentErrorMode = "continue"
+    [string]$AgentErrorMode = "continue",
+    # New: Diagnostic mode
+    [switch]$Diagnose
 )
 
 # Script directory
@@ -177,6 +179,7 @@ SETUP OPTIONS:
     -GithubToken TOKEN             GitHub Personal Access Token for authentication
     -AutoInstallCli BOOL           Auto-install Copilot CLI if not found (default: true)
     -Init                          Initialize project with starter configuration files
+    -Diagnose                      Run comprehensive system check and show status report
     -Help                          Show this help message
 
 EXAMPLES:
@@ -250,6 +253,203 @@ function Write-Log {
     }
 }
 
+# Function to run comprehensive system diagnostics
+function Show-DiagnosticStatus {
+    Write-Host ""
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "  GitHub Copilot CLI - System Diagnostics" -ForegroundColor Cyan
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $allPassed = $true
+    $warnings = 0
+    
+    # 1. Node.js Check
+    Write-Host "Node.js:" -ForegroundColor Yellow
+    try {
+        $nodeVersion = & node --version 2>$null
+        if ($nodeVersion) {
+            $version = [version]($nodeVersion.TrimStart('v').Split('.')[0..2] -join '.')
+            if ($version.Major -ge 20) {
+                Write-Host "  \u2713 Version: $nodeVersion (meets requirement >=20)" -ForegroundColor Green
+            } else {
+                Write-Host "  \u26A0 Version: $nodeVersion (recommended: >=20)" -ForegroundColor Yellow
+                $warnings++
+            }
+            $nodePath = (Get-Command node).Source
+            Write-Host "  \u2713 Path: $nodePath" -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "  \u2717 Not installed or not in PATH" -ForegroundColor Red
+        Write-Host "    -> Install from: https://nodejs.org/" -ForegroundColor Cyan
+        $allPassed = $false
+    }
+    Write-Host ""
+    
+    # 2. npm Check
+    Write-Host "npm:" -ForegroundColor Yellow
+    try {
+        $npmVersion = & npm --version 2>$null
+        if ($npmVersion) {
+            Write-Host "  \u2713 Version: $npmVersion" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  \u2717 Not available" -ForegroundColor Red
+        $allPassed = $false
+    }
+    Write-Host ""
+    
+    # 3. GitHub Copilot CLI Check
+    Write-Host "GitHub Copilot CLI:" -ForegroundColor Yellow
+    try {
+        $copilotVersion = & copilot --version 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  \u2713 Installed: $copilotVersion" -ForegroundColor Green
+        } else {
+            throw "Not installed"
+        }
+    } catch {
+        try {
+            $npmList = & npm list -g @github/copilot --depth=0 2>$null
+            if ($npmList -match '@github/copilot@') {
+                Write-Host "  \u2713 Installed (via npm)" -ForegroundColor Green
+            } else {
+                throw "Not found"
+            }
+        } catch {
+            Write-Host "  \u2717 Not installed" -ForegroundColor Red
+            Write-Host "    -> Install with: npm install -g @github/copilot" -ForegroundColor Cyan
+            $allPassed = $false
+        }
+    }
+    Write-Host ""
+    
+    # 4. GitHub Authentication Check
+    Write-Host "GitHub Authentication:" -ForegroundColor Yellow
+    $hasAuth = $false
+    
+    if ($env:GITHUB_TOKEN) {
+        Write-Host "  \u2713 GITHUB_TOKEN: Set ($($env:GITHUB_TOKEN.Length) chars)" -ForegroundColor Green
+        $hasAuth = $true
+    } else {
+        Write-Host "  \u25CB GITHUB_TOKEN: Not set" -ForegroundColor Gray
+    }
+    
+    if ($env:GH_TOKEN) {
+        Write-Host "  \u2713 GH_TOKEN: Set ($($env:GH_TOKEN.Length) chars)" -ForegroundColor Green
+        $hasAuth = $true
+    } else {
+        Write-Host "  \u25CB GH_TOKEN: Not set" -ForegroundColor Gray
+    }
+    
+    if ($env:COPILOT_GITHUB_TOKEN) {
+        Write-Host "  \u2713 COPILOT_GITHUB_TOKEN: Set" -ForegroundColor Green
+        $hasAuth = $true
+    } else {
+        Write-Host "  \u25CB COPILOT_GITHUB_TOKEN: Not set" -ForegroundColor Gray
+    }
+    
+    try {
+        $ghToken = & gh auth token 2>$null
+        if ($ghToken -and $LASTEXITCODE -eq 0) {
+            Write-Host "  \u2713 GitHub CLI: Authenticated" -ForegroundColor Green
+            $hasAuth = $true
+        } else {
+            Write-Host "  \u25CB GitHub CLI: Not authenticated" -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "  \u25CB GitHub CLI: Not installed" -ForegroundColor Gray
+    }
+    
+    if (-not $hasAuth) {
+        Write-Host "  \u26A0 No authentication configured" -ForegroundColor Yellow
+        Write-Host "    -> Run: gh auth login" -ForegroundColor Cyan
+        Write-Host "    -> Or set: `$env:GITHUB_TOKEN = 'ghp_...'" -ForegroundColor Cyan
+        $warnings++
+    }
+    Write-Host ""
+    
+    # 5. Network Check
+    Write-Host "Network:" -ForegroundColor Yellow
+    try {
+        $response = Invoke-RestMethod -Uri "https://api.github.com" -TimeoutSec 10 -UseBasicParsing
+        Write-Host "  \u2713 GitHub API: Accessible" -ForegroundColor Green
+    } catch {
+        Write-Host "  \u2717 GitHub API: Not accessible" -ForegroundColor Red
+        Write-Host "    -> Check internet connection or proxy settings" -ForegroundColor Cyan
+        $allPassed = $false
+    }
+    
+    if ($env:HTTP_PROXY -or $env:HTTPS_PROXY) {
+        Write-Host "  \u2713 Proxy configured:" -ForegroundColor Green
+        if ($env:HTTP_PROXY) { Write-Host "    HTTP_PROXY: $($env:HTTP_PROXY)" -ForegroundColor Gray }
+        if ($env:HTTPS_PROXY) { Write-Host "    HTTPS_PROXY: $($env:HTTPS_PROXY)" -ForegroundColor Gray }
+    }
+    Write-Host ""
+    
+    # 6. Configuration Check
+    Write-Host "Configuration:" -ForegroundColor Yellow
+    $configPath = Join-Path $ScriptDir "copilot-cli.properties"
+    if (Test-Path $configPath) {
+        Write-Host "  \u2713 Properties file: $configPath" -ForegroundColor Green
+    } else {
+        Write-Host "  \u25CB Properties file: Not found (using defaults)" -ForegroundColor Gray
+    }
+    
+    $mcpPath = Join-Path $ScriptDir "mcp-config.json"
+    if (Test-Path $mcpPath) {
+        try {
+            $null = Get-Content $mcpPath -Raw | ConvertFrom-Json
+            Write-Host "  \u2713 MCP config: $mcpPath (valid JSON)" -ForegroundColor Green
+        } catch {
+            Write-Host "  \u2717 MCP config: $mcpPath (invalid JSON)" -ForegroundColor Red
+            $allPassed = $false
+        }
+    } else {
+        Write-Host "  \u25CB MCP config: Not found (will be skipped)" -ForegroundColor Gray
+    }
+    Write-Host ""
+    
+    # 7. Working Directory Check
+    Write-Host "Working Directory:" -ForegroundColor Yellow
+    $currentDir = Get-Location
+    Write-Host "  \u2713 Current: $currentDir" -ForegroundColor Green
+    $gitDir = Join-Path $currentDir ".git"
+    if (Test-Path $gitDir) {
+        Write-Host "  \u2713 Git repository detected" -ForegroundColor Green
+    }
+    Write-Host ""
+    
+    # 8. Built-in Agents Check
+    Write-Host "Built-in Agents:" -ForegroundColor Yellow
+    $agents = Get-BuiltInAgents
+    if ($agents.Count -gt 0) {
+        Write-Host "  \u2713 Available: $($agents.Count) agents" -ForegroundColor Green
+        foreach ($agent in $agents | Select-Object -First 5) {
+            Write-Host "    - $($agent.Name)" -ForegroundColor Gray
+        }
+        if ($agents.Count -gt 5) {
+            Write-Host "    - ... and $($agents.Count - 5) more" -ForegroundColor Gray
+        }
+    } else {
+        Write-Host "  \u25CB No built-in agents found" -ForegroundColor Gray
+    }
+    Write-Host ""
+    
+    # Summary
+    Write-Host "=========================================" -ForegroundColor Cyan
+    if ($allPassed -and $warnings -eq 0) {
+        Write-Host "  Ready to run: YES \u2713" -ForegroundColor Green
+    } elseif ($allPassed) {
+        Write-Host "  Ready to run: YES (with $warnings warning(s))" -ForegroundColor Yellow
+    } else {
+        Write-Host "  Ready to run: NO \u2717" -ForegroundColor Red
+        Write-Host "  Fix the issues above and run -Diagnose again" -ForegroundColor Yellow
+    }
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host ""
+}
+
 # Function to parse boolean values
 function Parse-Bool {
     param([string]$Value)
@@ -260,6 +460,60 @@ function Parse-Bool {
     }
 }
 
+# Function to find similar files for suggestions
+function Find-SimilarFiles {
+    param(
+        [string]$FilePath,
+        [string[]]$Extensions = @('.md', '.txt')
+    )
+    
+    $directory = Split-Path $FilePath -Parent
+    if ([string]::IsNullOrEmpty($directory)) {
+        $directory = $ScriptDir
+    }
+    
+    $fileName = Split-Path $FilePath -Leaf
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+    
+    $suggestions = @()
+    
+    if (Test-Path $directory) {
+        # Find files with similar names or matching extensions
+        $allFiles = Get-ChildItem -Path $directory -File -ErrorAction SilentlyContinue
+        
+        foreach ($file in $allFiles) {
+            $fileExt = $file.Extension.ToLower()
+            if ($fileExt -in $Extensions) {
+                # Check for similar name
+                $similarityScore = 0
+                $fileBase = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+                
+                # Exact extension match with different name
+                if ($file.Name -like "*$baseName*" -or $baseName -like "*$fileBase*") {
+                    $similarityScore = 2
+                } elseif ($file.Extension -eq [System.IO.Path]::GetExtension($fileName)) {
+                    $similarityScore = 1
+                } elseif ($fileExt -in $Extensions) {
+                    $similarityScore = 1
+                }
+                
+                if ($similarityScore -gt 0) {
+                    $suggestions += @{
+                        Name = $file.Name
+                        Path = $file.FullName
+                        Score = $similarityScore
+                    }
+                }
+            }
+        }
+        
+        # Sort by score and return top 5
+        $suggestions = $suggestions | Sort-Object { -$_.Score } | Select-Object -First 5
+    }
+    
+    return $suggestions
+}
+
 # Function to load content from file preserving formatting
 function Load-FileContent {
     param(
@@ -268,6 +522,35 @@ function Load-FileContent {
     )
     
     if (-not (Test-Path $FilePath)) {
+        Write-Host "Error: $ContentType file not found: $FilePath" -ForegroundColor Red
+        
+        # Find and suggest similar files
+        $suggestions = Find-SimilarFiles -FilePath $FilePath
+        if ($suggestions.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Did you mean one of these?" -ForegroundColor Yellow
+            foreach ($suggestion in $suggestions) {
+                Write-Host "  - $($suggestion.Name)" -ForegroundColor Cyan
+            }
+            Write-Host ""
+            Write-Host "Tip: Use the correct file path or create the file:" -ForegroundColor Gray
+            Write-Host "  touch $FilePath" -ForegroundColor Cyan
+        } else {
+            $directory = Split-Path $FilePath -Parent
+            if ([string]::IsNullOrEmpty($directory)) { $directory = "." }
+            Write-Host ""
+            Write-Host "No similar files found in: $directory" -ForegroundColor Gray
+            Write-Host "Available .md files:" -ForegroundColor Yellow
+            $mdFiles = Get-ChildItem -Path $directory -Filter "*.md" -ErrorAction SilentlyContinue | Select-Object -First 5
+            if ($mdFiles) {
+                foreach ($file in $mdFiles) {
+                    Write-Host "  - $($file.Name)" -ForegroundColor Cyan
+                }
+            } else {
+                Write-Host "  (none)" -ForegroundColor Gray
+            }
+        }
+        
         throw "$ContentType file '$FilePath' not found"
     }
     
@@ -1443,6 +1726,20 @@ function Build-CopilotCommand {
     if (-not [string]::IsNullOrEmpty($McpConfigFile)) {
         $resolvedMcpConfigFile = Resolve-FilePath -FilePath $McpConfigFile
         if (-not (Test-Path $resolvedMcpConfigFile)) {
+            Write-Host "Error: MCP configuration file not found: $McpConfigFile" -ForegroundColor Red
+            
+            # Find similar JSON files
+            $directory = Split-Path $resolvedMcpConfigFile -Parent
+            if ([string]::IsNullOrEmpty($directory)) { $directory = $ScriptDir }
+            $jsonFiles = Get-ChildItem -Path $directory -Filter "*.json" -ErrorAction SilentlyContinue | Select-Object -First 5
+            if ($jsonFiles) {
+                Write-Host ""
+                Write-Host "Available .json files in directory:" -ForegroundColor Yellow
+                foreach ($file in $jsonFiles) {
+                    Write-Host "  - $($file.Name)" -ForegroundColor Cyan
+                }
+            }
+            Write-Host ""
             throw "MCP configuration file '$McpConfigFile' not found"
         }
         $cmd += " --additional-mcp-config @$resolvedMcpConfigFile"
@@ -1558,6 +1855,12 @@ try {
     # Handle -ListAgents command
     if ($ListAgents) {
         Show-BuiltInAgents
+        exit 0
+    }
+    
+    # Handle -Diagnose command
+    if ($Diagnose) {
+        Show-DiagnosticStatus
         exit 0
     }
     
@@ -1815,7 +2118,43 @@ try {
     }
     
 } catch {
-    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    $errorMsg = $_.Exception.Message
+    Write-Host "Error: $errorMsg" -ForegroundColor Red
+    
+    # Provide actionable guidance based on error type
+    if ($errorMsg -match "Node\.js is not installed") {
+        Write-Host ""
+        Write-Host "Quick fix:" -ForegroundColor Yellow
+        Write-Host "  Install Node.js 20+ from: https://nodejs.org/" -ForegroundColor Cyan
+    } elseif ($errorMsg -match "Copilot CLI .* not installed|GitHub Copilot CLI is not installed") {
+        Write-Host ""
+        Write-Host "Quick fix:" -ForegroundColor Yellow
+        Write-Host "  npm install -g @github/copilot" -ForegroundColor Cyan
+    } elseif ($errorMsg -match "authentication|token|401|403") {
+        Write-Host ""
+        Write-Host "Quick fix:" -ForegroundColor Yellow
+        Write-Host "  gh auth login" -ForegroundColor Cyan
+        Write-Host "  Or set: `$env:GITHUB_TOKEN = 'ghp_...'" -ForegroundColor Cyan
+    } elseif ($errorMsg -match "timed out") {
+        Write-Host ""
+        Write-Host "The operation took too long. Consider:" -ForegroundColor Yellow
+        Write-Host "  - Increasing timeout: -TimeoutMinutes 60" -ForegroundColor Cyan
+        Write-Host "  - Simplifying the prompt" -ForegroundColor Cyan
+    } elseif ($errorMsg -match "exit code: (\d+)") {
+        $exitCode = $matches[1]
+        Write-Host ""
+        Write-Host "Copilot CLI exited with code $exitCode" -ForegroundColor Yellow
+        switch ($exitCode) {
+            "1" { Write-Host "  General error - check the output above for details" -ForegroundColor Cyan }
+            "2" { Write-Host "  Invalid arguments - check your command syntax" -ForegroundColor Cyan }
+            "126" { Write-Host "  Permission denied - check file permissions" -ForegroundColor Cyan }
+            "127" { Write-Host "  Command not found - ensure Copilot CLI is installed" -ForegroundColor Cyan }
+            default { Write-Host "  Unknown error - check the output above" -ForegroundColor Cyan }
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "Run with -Diagnose to check all prerequisites" -ForegroundColor Gray
     exit 1
 } finally {
     # Restore original directory in case of errors
