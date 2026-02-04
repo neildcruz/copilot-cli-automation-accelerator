@@ -27,6 +27,24 @@ Local automation scripts providing the same functionality as the GitHub Action f
 ./copilot-cli.sh --agent security-analysis
 ```
 
+### Use Default Prompts (Zero-Config)
+
+The default prompt files (`user.prompt.md` and `system.prompt.md`) now include working defaults that provide immediate value. Run a general-purpose code analysis with:
+
+```bash
+# Bash - Use built-in default prompts
+./copilot-cli.sh --use-defaults
+
+# PowerShell
+.\copilot-cli.ps1 -UseDefaults
+```
+
+The default prompts perform a comprehensive codebase analysis including:
+- Project structure and architecture overview
+- Code quality assessment and potential issues
+- Security vulnerabilities and risky patterns
+- Prioritized recommendations for improvement
+
 ### Basic Usage
 
 #### Bash (Linux/macOS)
@@ -150,6 +168,7 @@ OPTIONS:
     -c, --config FILE               Configuration properties file
     -p, --prompt TEXT              The prompt to execute (required)
     -s, --system-prompt TEXT       System instructions to guide AI behavior
+    --use-defaults                 Use built-in default prompts for quick analysis
     -t, --github-token TOKEN       GitHub Personal Access Token for authentication
     -m, --model MODEL              AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
     --auto-install-cli BOOL        Automatically install Copilot CLI if not found (true/false)
@@ -179,6 +198,7 @@ PARAMETERS:
     -Config FILE                    Configuration properties file
     -Prompt TEXT                   The prompt to execute (required)
     -SystemPrompt TEXT             System instructions to guide AI behavior
+    -UseDefaults                   Use built-in default prompts for quick analysis
     -GithubToken TOKEN             GitHub Personal Access Token for authentication
     -Model MODEL                   AI model
     -AutoInstallCli BOOL           Automatically install Copilot CLI if not found (true/false)

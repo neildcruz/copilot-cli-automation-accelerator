@@ -55,7 +55,9 @@ param(
     [switch]$Continue,
     [switch]$Init,
     # New: Built-in agent discovery
-    [switch]$ListAgents
+    [switch]$ListAgents,
+    # New: Use defaults flag
+    [switch]$UseDefaults
 )
 
 # Script directory
@@ -92,6 +94,7 @@ Usage: .\copilot-cli.ps1 [OPTIONS]
 
 QUICK START:
     .\copilot-cli.ps1 -Agent code-review               # Use built-in agent
+    .\copilot-cli.ps1 -UseDefaults                     # Use built-in default prompts
     .\copilot-cli.ps1 -ListAgents                      # List available agents
     .\copilot-cli.ps1 -Prompt "Review this code"       # Direct prompt
     .\copilot-cli.ps1 -Init                            # Initialize project config
@@ -118,6 +121,7 @@ PROMPT OPTIONS:
     -PromptFile FILE               Load prompt from text/markdown file
     -SystemPrompt TEXT             System prompt with guidelines to emphasize
     -SystemPromptFile FILE         Load system prompt from file
+    -UseDefaults                   Use built-in default prompts (useful for quick analysis)
 
 MODEL & AGENT OPTIONS:
     -Model MODEL                   AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
@@ -280,6 +284,31 @@ function Load-FileContent {
     }
     
     return $content
+}
+
+# Function to check if prompt content has meaningful text (not just comments)
+function Test-PromptHasContent {
+    param(
+        [string]$Content,
+        [string]$ContentType
+    )
+    
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return $false
+    }
+    
+    # Remove HTML comments and check if anything meaningful remains
+    $withoutComments = $Content -replace '<!--[\s\S]*?-->', ''
+    # Remove markdown headers that are just titles
+    $withoutHeaders = $withoutComments -replace '^#.*$', '' -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    
+    if ($withoutHeaders.Count -eq 0) {
+        Write-Host "Warning: $ContentType appears to contain only comments or headers. The prompt may not produce meaningful results." -ForegroundColor Yellow
+        Write-Host "Tip: Add actual instructions to your prompt file, or use -UseDefaults to use the built-in default prompts." -ForegroundColor Gray
+        return $false
+    }
+    
+    return $true
 }
 
 # Function to get the prompt cache directory
@@ -1286,6 +1315,16 @@ try {
         }
     }
     
+    # Handle -UseDefaults: use built-in default prompt files
+    if ($UseDefaults) {
+        Write-Host "Using built-in default prompts" -ForegroundColor Cyan
+        $PromptFile = "user.prompt.md"
+        $SystemPromptFile = "system.prompt.md"
+        # Clear any inline prompts to force loading from files
+        $Prompt = ""
+        $SystemPrompt = ""
+    }
+    
     # Load prompts from files if specified (command line params override)
     # Load prompt from file if PromptFile is specified and Prompt is empty
     if ([string]::IsNullOrEmpty($Prompt) -and -not [string]::IsNullOrEmpty($PromptFile)) {
@@ -1299,6 +1338,14 @@ try {
         $SystemPrompt = Load-FileContent -FilePath $resolvedSystemPromptFile -ContentType "System prompt"
     }
     
+    # Validate that prompts have meaningful content (not just comments)
+    if (-not [string]::IsNullOrEmpty($Prompt)) {
+        $null = Test-PromptHasContent -Content $Prompt -ContentType "User prompt"
+    }
+    if (-not [string]::IsNullOrEmpty($SystemPrompt)) {
+        $null = Test-PromptHasContent -Content $SystemPrompt -ContentType "System prompt"
+    }
+    
     # Validate required parameters
     if ([string]::IsNullOrEmpty($Prompt)) {
         Write-Host ""
@@ -1307,7 +1354,8 @@ try {
         Write-Host "Quick Start:" -ForegroundColor Cyan
         Write-Host "  .\copilot-cli.ps1 -Prompt `"Your task here`""
         Write-Host "  .\copilot-cli.ps1 -UsePrompt code-review"
-        Write-Host "  .\copilot-cli.ps1 -Init                     # Create starter config"
+        Write-Host "  .\copilot-cli.ps1 -UseDefaults               # Use built-in default prompts"
+        Write-Host "  .\copilot-cli.ps1 -Init                      # Create starter config"
         Write-Host ""
         Write-Host "Discover Prompts:" -ForegroundColor Cyan
         Write-Host "  .\copilot-cli.ps1 -ListPrompts              # List available prompts"

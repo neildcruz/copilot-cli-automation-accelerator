@@ -61,6 +61,7 @@ RESUME=""
 CONTINUE_SESSION="false"
 INIT="false"
 LIST_AGENTS="false"
+USE_DEFAULTS="false"
 
 # Function to show usage
 show_usage() {
@@ -74,6 +75,7 @@ Usage: ./copilot-cli.sh [OPTIONS]
 
 QUICK START:
     ./copilot-cli.sh --agent code-review                # Use built-in agent
+    ./copilot-cli.sh --use-defaults                     # Use built-in default prompts
     ./copilot-cli.sh --list-agents                      # List available agents
     ./copilot-cli.sh --prompt "Review this code"        # Direct prompt
     ./copilot-cli.sh --init                             # Initialize project config
@@ -99,6 +101,7 @@ PROMPT OPTIONS:
     --prompt-file FILE             Load prompt from text/markdown file
     -s, --system-prompt TEXT       System prompt with guidelines to emphasize
     --system-prompt-file FILE      Load system prompt from file
+    --use-defaults                 Use built-in default prompts (useful for quick analysis)
 
 MODEL & AGENT OPTIONS:
     -m, --model MODEL              AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
@@ -551,6 +554,31 @@ load_file_content() {
     # Read file content preserving line breaks and formatting
     # Use cat to preserve exact content
     cat "$file_path"
+}
+
+# Function to check if prompt content has meaningful text (not just comments)
+has_meaningful_content() {
+    local content="$1"
+    local content_type="$2"
+    
+    if [[ -z "$content" ]]; then
+        return 1
+    fi
+    
+    # Remove HTML comments and check if anything meaningful remains
+    local without_comments
+    without_comments=$(echo "$content" | sed 's/<!--.*-->//g' | sed 's/<!--//g; s/-->//g')
+    # Remove markdown headers that are just titles and empty lines
+    local meaningful
+    meaningful=$(echo "$without_comments" | grep -v '^#' | grep -v '^[[:space:]]*$' | head -1)
+    
+    if [[ -z "$meaningful" ]]; then
+        echo "Warning: $content_type appears to contain only comments or headers. The prompt may not produce meaningful results." >&2
+        echo "Tip: Add actual instructions to your prompt file, or use --use-defaults to use the built-in default prompts." >&2
+        return 1
+    fi
+    
+    return 0
 }
 
 # Function to load configuration from properties file
@@ -1117,6 +1145,10 @@ while [[ $# -gt 0 ]]; do
             LIST_AGENTS="true"
             shift
             ;;
+        --use-defaults)
+            USE_DEFAULTS="true"
+            shift
+            ;;
         -h|--help)
             show_usage
             exit 0
@@ -1225,6 +1257,16 @@ if [[ -n "$USE_PROMPT" ]]; then
     fi
 fi
 
+# Handle --use-defaults: use built-in default prompt files
+if [[ "$USE_DEFAULTS" == "true" ]]; then
+    echo "Using built-in default prompts"
+    PROMPT_FILE="${SCRIPT_DIR}/user.prompt.md"
+    SYSTEM_PROMPT_FILE="${SCRIPT_DIR}/system.prompt.md"
+    # Clear any inline prompts to force loading from files
+    PROMPT=""
+    SYSTEM_PROMPT=""
+fi
+
 # Load prompts from files if specified (command line params override)
 # Load prompt from file if PROMPT_FILE is specified and PROMPT is empty
 if [[ -z "$PROMPT" && -n "$PROMPT_FILE" ]]; then
@@ -1234,6 +1276,14 @@ fi
 # Load system prompt from file if SYSTEM_PROMPT_FILE is specified and SYSTEM_PROMPT is empty
 if [[ -z "$SYSTEM_PROMPT" && -n "$SYSTEM_PROMPT_FILE" ]]; then
     SYSTEM_PROMPT=$(load_file_content "$SYSTEM_PROMPT_FILE" "System prompt")
+fi
+
+# Validate that prompts have meaningful content (not just comments)
+if [[ -n "$PROMPT" ]]; then
+    has_meaningful_content "$PROMPT" "User prompt" || true
+fi
+if [[ -n "$SYSTEM_PROMPT" ]]; then
+    has_meaningful_content "$SYSTEM_PROMPT" "System prompt" || true
 fi
 
 # Validate required parameters
