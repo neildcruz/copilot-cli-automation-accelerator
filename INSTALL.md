@@ -1,8 +1,8 @@
-# GitHub Copilot CLI Automation Accelerator - Installation Scripts
+# GitHub Copilot CLI Automation Accelerator - Installation
 
-This directory contains installation scripts for downloading and setting up the complete GitHub Copilot CLI Automation Suite from the remote repository.
+> **Prerequisites:** Node.js 20+, GitHub authentication. See [README.md](README.md) for full requirements.
 
-## Quick Start
+## Quick Install
 
 ### Windows (PowerShell)
 
@@ -129,34 +129,7 @@ chmod +x install.sh
 
 ## What Gets Installed
 
-The installation scripts download all necessary files and maintain the proper directory structure:
-
-```
-copilot-cli-automation-accelerator/
-├── README.md                      # Project overview
-├── INDEX.md                       # Navigation guide
-├── actions/                       # GitHub Actions
-│   ├── README.md
-│   ├── QUICK_START.md
-│   ├── copilot-cli-action.yml
-│   └── example-copilot-usage.yml
-└── automation/                    # Local automation scripts
-    ├── README.md
-    ├── copilot-cli.sh             # Bash script
-    ├── copilot-cli.ps1            # PowerShell script
-    ├── copilot-cli.properties     # Main configuration
-    ├── test-prompt.txt            # Sample files
-    ├── test-system-prompt.md
-    └── examples/                   # Pre-built agent configurations
-        ├── README.md
-        ├── mcp-config.json
-        ├── code-review/
-        ├── security-analysis/
-        ├── test-generation/
-        ├── documentation-generation/
-        ├── refactoring/
-        └── cicd-analysis/
-```
+The scripts download the complete automation suite. See [README.md](README.md) for project structure details.
 
 ## Features
 
@@ -187,22 +160,6 @@ copilot-cli-automation-accelerator/
 - Comprehensive post-install instructions
 - Detailed help and usage information
 - Verbose mode for troubleshooting
-
-## Prerequisites
-
-### Runtime Requirements
-- **Node.js 20+** (recommended for GitHub Copilot CLI)
-- **Internet connection** to GitHub
-- **Git** (optional, for cloning instead of downloading)
-
-### Platform-Specific
-- **Windows**: PowerShell 5.1+ or PowerShell Core
-- **Linux/macOS**: Bash 4+ (recommended), curl or wget
-- **Authentication**: GitHub CLI or Personal Access Token
-
-### Network Requirements
-- Access to `https://raw.githubusercontent.com`
-- Access to `https://api.github.com` (for connectivity testing)
 
 ## Post-Installation
 
