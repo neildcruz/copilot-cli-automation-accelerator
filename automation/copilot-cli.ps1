@@ -57,7 +57,11 @@ param(
     # New: Built-in agent discovery
     [switch]$ListAgents,
     # New: Use defaults flag
-    [switch]$UseDefaults
+    [switch]$UseDefaults,
+    # New: Multi-agent composition
+    [string]$Agents = "",
+    [ValidateSet("continue", "stop")]
+    [string]$AgentErrorMode = "continue"
 )
 
 # Script directory
@@ -94,6 +98,7 @@ Usage: .\copilot-cli.ps1 [OPTIONS]
 
 QUICK START:
     .\copilot-cli.ps1 -Agent code-review               # Use built-in agent
+    .\copilot-cli.ps1 -Agents "security,code-review"   # Run multiple agents
     .\copilot-cli.ps1 -UseDefaults                     # Use built-in default prompts
     .\copilot-cli.ps1 -ListAgents                      # List available agents
     .\copilot-cli.ps1 -Prompt "Review this code"       # Direct prompt
@@ -103,6 +108,9 @@ BUILT-IN AGENTS:
     -ListAgents                    List all available built-in agents
     -Agent NAME                    Use a built-in agent by name
                                    Examples: code-review, security-analysis, test-generation
+    -Agents NAMES                  Run multiple agents sequentially (comma-separated)
+                                   Example: -Agents "security-analysis,code-review"
+    -AgentErrorMode MODE           Behavior on agent failure: 'continue' (default) or 'stop'
 
 PROMPT REPOSITORY OPTIONS:
     -UsePrompt NAME                Use a prompt from GitHub repository
@@ -771,6 +779,334 @@ function Get-BuiltInAgentConfig {
     return $result
 }
 
+# ============================================================================
+# Multi-Agent Composition Functions
+# ============================================================================
+
+# Function to parse comma-separated agent list
+function Get-AgentList {
+    param([string]$AgentsString)
+    
+    $agents = $AgentsString -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    return $agents
+}
+
+# Function to validate all agents in a list exist
+function Test-AgentList {
+    param([string]$AgentsString)
+    
+    $agents = Get-AgentList -AgentsString $AgentsString
+    $allAgents = Get-BuiltInAgents
+    $validAgents = @()
+    $invalidAgents = @()
+    
+    foreach ($agentName in $agents) {
+        $exists = $allAgents | Where-Object { $_.Name -eq $agentName }
+        if ($exists) {
+            $validAgents += $agentName
+        } else {
+            $invalidAgents += $agentName
+        }
+    }
+    
+    if ($invalidAgents.Count -gt 0) {
+        Write-Host "Error: The following agents were not found:" -ForegroundColor Red
+        foreach ($agent in $invalidAgents) {
+            Write-Host "  - $agent" -ForegroundColor Red
+        }
+        Write-Host ""
+        Write-Host "Available agents:" -ForegroundColor Yellow
+        foreach ($agent in $allAgents) {
+            Write-Host "  - $($agent.Name)" -ForegroundColor Gray
+        }
+        Write-Host ""
+        Write-Host "Use -ListAgents to see all available agents." -ForegroundColor Gray
+        return $null
+    }
+    
+    return $validAgents
+}
+
+# Function to run a single agent and capture results
+function Invoke-SingleAgent {
+    param(
+        [string]$AgentName,
+        [int]$AgentIndex,
+        [int]$TotalAgents,
+        [string]$OutputDir
+    )
+    
+    $startTime = Get-Date
+    $outputFile = Join-Path $OutputDir "$AgentName.output.md"
+    
+    Write-Host ""
+    Write-Host "===== Running Agent: $AgentName ($AgentIndex/$TotalAgents) =====" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Get agent configuration
+    $builtInConfig = Get-BuiltInAgentConfig -AgentName $AgentName
+    if (-not $builtInConfig) {
+        Write-Host "Error: Failed to load agent '$AgentName'" -ForegroundColor Red
+        return @{
+            Success = $false
+            ExitCode = 1
+            Duration = 0
+            Output = ""
+        }
+    }
+    
+    # Store original values
+    $origConfig = $script:Config
+    $origPromptFile = $script:PromptFile
+    $origSystemPromptFile = $script:SystemPromptFile
+    $origPrompt = $script:Prompt
+    $origSystemPrompt = $script:SystemPrompt
+    
+    # Apply agent configuration
+    if ($builtInConfig.PropertiesFile) {
+        $script:Config = $builtInConfig.PropertiesFile
+        Load-Config -ConfigFile $script:Config
+    }
+    
+    if ($builtInConfig.UserPromptFile) {
+        $script:PromptFile = $builtInConfig.UserPromptFile
+        $script:Prompt = ""
+    }
+    
+    if ($builtInConfig.SystemPromptFile) {
+        $script:SystemPromptFile = $builtInConfig.SystemPromptFile
+        $script:SystemPrompt = ""
+    }
+    
+    # Load prompts from files
+    if ([string]::IsNullOrEmpty($script:Prompt) -and -not [string]::IsNullOrEmpty($script:PromptFile)) {
+        $resolvedPromptFile = Resolve-FilePath -FilePath $script:PromptFile
+        if (Test-Path $resolvedPromptFile) {
+            $script:Prompt = Get-Content $resolvedPromptFile -Raw
+        }
+    }
+    if ([string]::IsNullOrEmpty($script:SystemPrompt) -and -not [string]::IsNullOrEmpty($script:SystemPromptFile)) {
+        $resolvedSystemFile = Resolve-FilePath -FilePath $script:SystemPromptFile
+        if (Test-Path $resolvedSystemFile) {
+            $script:SystemPrompt = Get-Content $resolvedSystemFile -Raw
+        }
+    }
+    
+    # Build command
+    $copilotCmd = Build-CopilotCommand
+    
+    Write-Host "Agent command: $copilotCmd" -ForegroundColor Gray
+    Write-Host ""
+    
+    $exitCode = 0
+    $output = ""
+    
+    # Execute with output capture
+    $outputBuilder = New-Object System.Text.StringBuilder
+    [void]$outputBuilder.AppendLine("# Agent: $AgentName")
+    [void]$outputBuilder.AppendLine("## Execution Time: $(Get-Date -Format 'o')")
+    [void]$outputBuilder.AppendLine("")
+    
+    if ($DryRun) {
+        $dryRunMsg = "[DRY RUN] Command: $copilotCmd"
+        [void]$outputBuilder.AppendLine($dryRunMsg)
+        Write-Host $dryRunMsg -ForegroundColor Yellow
+    } else {
+        try {
+            $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $processInfo.FileName = "powershell.exe"
+            $processInfo.Arguments = "-Command `"& { $copilotCmd }`""
+            $processInfo.RedirectStandardOutput = $true
+            $processInfo.RedirectStandardError = $true
+            $processInfo.UseShellExecute = $false
+            $processInfo.CreateNoWindow = $true
+            $processInfo.WorkingDirectory = (Get-Location).Path
+            
+            $process = New-Object System.Diagnostics.Process
+            $process.StartInfo = $processInfo
+            
+            $process.Start() | Out-Null
+            
+            $stdout = $process.StandardOutput.ReadToEnd()
+            $stderr = $process.StandardError.ReadToEnd()
+            
+            $timeoutMs = $TimeoutMinutes * 60 * 1000
+            $completed = $process.WaitForExit($timeoutMs)
+            
+            if (-not $completed) {
+                $process.Kill()
+                throw "Agent execution timed out after $TimeoutMinutes minutes"
+            }
+            
+            $exitCode = $process.ExitCode
+            
+            # Output stdout
+            if ($stdout) {
+                Write-Host $stdout
+                [void]$outputBuilder.AppendLine($stdout)
+            }
+            if ($stderr) {
+                Write-Host $stderr -ForegroundColor Yellow
+                [void]$outputBuilder.AppendLine($stderr)
+            }
+            
+        } catch {
+            $exitCode = 1
+            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+            [void]$outputBuilder.AppendLine("Error: $($_.Exception.Message)")
+        } finally {
+            if ($process -and -not $process.HasExited) {
+                try { $process.Kill() } catch { }
+            }
+            if ($process) {
+                $process.Dispose()
+            }
+        }
+    }
+    
+    $output = $outputBuilder.ToString()
+    $output | Out-File -FilePath $outputFile -Encoding utf8
+    
+    $endTime = Get-Date
+    $duration = [int]($endTime - $startTime).TotalSeconds
+    
+    # Restore original values
+    $script:Config = $origConfig
+    $script:PromptFile = $origPromptFile
+    $script:SystemPromptFile = $origSystemPromptFile
+    $script:Prompt = $origPrompt
+    $script:SystemPrompt = $origSystemPrompt
+    
+    # Report status
+    if ($exitCode -eq 0) {
+        Write-Host ""
+        Write-Host "Agent '$AgentName' completed successfully (${duration}s)" -ForegroundColor Green
+    } else {
+        Write-Host ""
+        Write-Host "Agent '$AgentName' failed with exit code $exitCode (${duration}s)" -ForegroundColor Red
+    }
+    
+    return @{
+        Success = ($exitCode -eq 0)
+        ExitCode = $exitCode
+        Duration = $duration
+        Output = $output
+    }
+}
+
+# Function to run multiple agents sequentially
+function Invoke-AgentQueue {
+    param(
+        [string]$AgentsString,
+        [string]$ErrorMode
+    )
+    
+    # Create output directory
+    $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
+    $outputBaseDir = Join-Path $env:USERPROFILE ".copilot-cli-automation\runs"
+    $outputDir = Join-Path $outputBaseDir $timestamp
+    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    
+    # Parse and validate agents
+    $agents = Test-AgentList -AgentsString $AgentsString
+    if (-not $agents) {
+        return $false
+    }
+    
+    $totalAgents = $agents.Count
+    
+    if ($totalAgents -eq 0) {
+        Write-Host "Error: No agents specified" -ForegroundColor Red
+        return $false
+    }
+    
+    Write-Host ""
+    Write-Host "===== Multi-Agent Execution =====" -ForegroundColor Cyan
+    Write-Host "Agents to run: $($agents -join ', ')"
+    Write-Host "Error mode: $ErrorMode"
+    Write-Host "Output directory: $outputDir"
+    Write-Host "=================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Track results
+    $passed = 0
+    $failed = 0
+    $results = @()
+    $startTotal = Get-Date
+    
+    # Run each agent
+    $index = 1
+    foreach ($agentName in $agents) {
+        $status = "PASSED"
+        
+        $result = Invoke-SingleAgent -AgentName $agentName -AgentIndex $index -TotalAgents $totalAgents -OutputDir $outputDir
+        
+        if ($result.Success) {
+            $passed++
+        } else {
+            $failed++
+            $status = "FAILED"
+            
+            if ($ErrorMode -eq "stop") {
+                Write-Host ""
+                Write-Host "Error mode is 'stop'. Aborting remaining agents." -ForegroundColor Yellow
+                break
+            }
+        }
+        
+        $results += @{
+            Name = $agentName
+            Status = $status
+            Duration = $result.Duration
+        }
+        
+        $index++
+    }
+    
+    $endTotal = Get-Date
+    $totalDuration = [int]($endTotal - $startTotal).TotalSeconds
+    
+    # Generate summary
+    Write-Host ""
+    Write-Host "===== Multi-Agent Run Summary =====" -ForegroundColor Cyan
+    Write-Host "Total agents: $totalAgents | Passed: $passed | Failed: $failed"
+    Write-Host "Total duration: ${totalDuration}s"
+    Write-Host ""
+    
+    # Print individual results
+    foreach ($r in $results) {
+        $color = if ($r.Status -eq "PASSED") { "Green" } else { "Red" }
+        Write-Host ("  {0,-25} [{1}] ({2}s)" -f $r.Name, $r.Status, $r.Duration) -ForegroundColor $color
+    }
+    
+    Write-Host ""
+    Write-Host "Outputs saved to: $outputDir" -ForegroundColor Gray
+    Write-Host "====================================" -ForegroundColor Cyan
+    
+    # Save summary to file
+    $summaryContent = @"
+# Multi-Agent Run Summary
+## $(Get-Date -Format 'o')
+
+- **Total agents:** $totalAgents
+- **Passed:** $passed
+- **Failed:** $failed
+- **Total duration:** ${totalDuration}s
+- **Error mode:** $ErrorMode
+
+## Results
+
+"@
+    foreach ($r in $results) {
+        $summaryContent += "- **$($r.Name)**: $($r.Status) ($($r.Duration)s)`n"
+    }
+    
+    $summaryContent | Out-File -FilePath (Join-Path $outputDir "SUMMARY.md") -Encoding utf8
+    
+    # Return failure if any agent failed
+    return ($failed -eq 0)
+}
+
 # Function to load configuration from properties file
 function Load-Config {
     param([string]$ConfigFile)
@@ -1223,6 +1559,27 @@ try {
     if ($ListAgents) {
         Show-BuiltInAgents
         exit 0
+    }
+    
+    # Check for mutual exclusivity of -Agent and -Agents
+    if (-not [string]::IsNullOrEmpty($Agent) -and -not [string]::IsNullOrEmpty($Agents)) {
+        Write-Host "Error: Cannot use both -Agent and -Agents together." -ForegroundColor Red
+        Write-Host "Use -Agent for a single agent, or -Agents for multiple agents." -ForegroundColor Yellow
+        exit 1
+    }
+    
+    # Handle -Agents: run multiple agents sequentially
+    if (-not [string]::IsNullOrEmpty($Agents)) {
+        # Setup dependencies and auth first
+        Test-Dependencies
+        Set-GitHubAuth
+        
+        # Run the agent queue
+        if (Invoke-AgentQueue -AgentsString $Agents -ErrorMode $AgentErrorMode) {
+            exit 0
+        } else {
+            exit 1
+        }
     }
     
     # Handle -Agent: check if it's a built-in agent first

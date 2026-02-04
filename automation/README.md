@@ -27,6 +27,34 @@ Local automation scripts providing the same functionality as the GitHub Action f
 ./copilot-cli.sh --agent security-analysis
 ```
 
+### Run Multiple Agents (Multi-Agent Composition)
+
+Run multiple agents sequentially for comprehensive analysis:
+
+```bash
+# Bash - Run security analysis followed by code review
+./copilot-cli.sh --agents "security-analysis,code-review"
+
+# PowerShell
+.\copilot-cli.ps1 -Agents "security-analysis,code-review"
+
+# Control error behavior: 'continue' (default) runs all agents even if one fails
+#                        'stop' aborts on first failure
+./copilot-cli.sh --agents "security-analysis,code-review,test-generation" --agent-error-mode stop
+.\copilot-cli.ps1 -Agents "security-analysis,code-review" -AgentErrorMode continue
+```
+
+**How it works:**
+- Agents run sequentially in the order specified
+- Each agent's output is saved to `~/.copilot-cli-automation/runs/{timestamp}/`
+- A summary report shows pass/fail status and duration for each agent
+- Agents share the working directory, so earlier agents can create files for later ones
+
+**Designing prompts for sequential workflows:**
+- Earlier agents can write marker files (e.g., `SECURITY_FINDINGS.md`)
+- Later agents can check for and reference these files in their analysis
+- Use `--agent-error-mode stop` if later agents depend on earlier ones succeeding
+
 ### Use Default Prompts (Zero-Config)
 
 The default prompt files (`user.prompt.md` and `system.prompt.md`) now include working defaults that provide immediate value. Run a general-purpose code analysis with:

@@ -63,6 +63,10 @@ INIT="false"
 LIST_AGENTS="false"
 USE_DEFAULTS="false"
 
+# Multi-agent composition options
+AGENTS=""
+AGENT_ERROR_MODE="continue"
+
 # Function to show usage
 show_usage() {
     cat << 'EOF'
@@ -75,6 +79,7 @@ Usage: ./copilot-cli.sh [OPTIONS]
 
 QUICK START:
     ./copilot-cli.sh --agent code-review                # Use built-in agent
+    ./copilot-cli.sh --agents "security,code-review"    # Run multiple agents
     ./copilot-cli.sh --use-defaults                     # Use built-in default prompts
     ./copilot-cli.sh --list-agents                      # List available agents
     ./copilot-cli.sh --prompt "Review this code"        # Direct prompt
@@ -84,6 +89,9 @@ BUILT-IN AGENTS:
     --list-agents                  List all available built-in agents
     --agent NAME                   Use a built-in agent by name
                                    Examples: code-review, security-analysis, test-generation
+    --agents NAMES                 Run multiple agents sequentially (comma-separated)
+                                   Example: --agents "security-analysis,code-review"
+    --agent-error-mode MODE        Behavior on agent failure: 'continue' (default) or 'stop'
 
 PROMPT REPOSITORY OPTIONS:
     --use-prompt NAME              Use a prompt from GitHub repository
@@ -530,6 +538,264 @@ get_builtin_agent_config() {
     fi
     
     return 0
+}
+
+# ============================================================================
+# Multi-Agent Composition Functions
+# ============================================================================
+
+# Function to parse comma-separated agent list
+parse_agent_list() {
+    local agents_string="$1"
+    # Remove spaces around commas and split
+    echo "$agents_string" | tr ',' '\n' | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -v '^$'
+}
+
+# Function to validate all agents in a list exist
+validate_agent_list() {
+    local agents_string="$1"
+    local invalid_agents=()
+    local valid_agents=()
+    
+    while IFS= read -r agent_name; do
+        [[ -z "$agent_name" ]] && continue
+        local examples_dir="${SCRIPT_DIR}/examples"
+        local agent_dir="${examples_dir}/${agent_name}"
+        
+        if [[ -d "$agent_dir" ]]; then
+            valid_agents+=("$agent_name")
+        else
+            invalid_agents+=("$agent_name")
+        fi
+    done < <(parse_agent_list "$agents_string")
+    
+    if [[ ${#invalid_agents[@]} -gt 0 ]]; then
+        echo "Error: The following agents were not found:" >&2
+        for agent in "${invalid_agents[@]}"; do
+            echo "  - $agent" >&2
+        done
+        echo "" >&2
+        echo "Available agents:" >&2
+        get_builtin_agents | while IFS='|' read -r name desc; do
+            echo "  - $name" >&2
+        done
+        echo "" >&2
+        echo "Use --list-agents to see all available agents." >&2
+        return 1
+    fi
+    
+    echo "${valid_agents[@]}"
+    return 0
+}
+
+# Function to run a single agent and capture results
+# Returns: 0 on success, non-zero on failure
+# Outputs: Agent output to stdout, status info to stderr
+run_single_agent() {
+    local agent_name="$1"
+    local agent_index="$2"
+    local total_agents="$3"
+    local output_dir="$4"
+    
+    local start_time=$(date +%s)
+    local output_file="${output_dir}/${agent_name}.output.md"
+    
+    echo "" >&2
+    echo "===== Running Agent: ${agent_name} (${agent_index}/${total_agents}) =====" >&2
+    echo "" >&2
+    
+    # Get agent configuration
+    if ! get_builtin_agent_config "$agent_name"; then
+        echo "Error: Failed to load agent '$agent_name'" >&2
+        return 1
+    fi
+    
+    # Store original values
+    local orig_config_file="$CONFIG_FILE"
+    local orig_prompt_file="$PROMPT_FILE"
+    local orig_system_prompt_file="$SYSTEM_PROMPT_FILE"
+    local orig_prompt="$PROMPT"
+    local orig_system_prompt="$SYSTEM_PROMPT"
+    
+    # Apply agent configuration
+    if [[ -n "$BUILTIN_AGENT_PROPS" ]]; then
+        CONFIG_FILE="$BUILTIN_AGENT_PROPS"
+        load_config "$CONFIG_FILE"
+    fi
+    
+    if [[ -n "$BUILTIN_AGENT_USER_PROMPT" ]]; then
+        PROMPT_FILE="$BUILTIN_AGENT_USER_PROMPT"
+        PROMPT=""
+    fi
+    
+    if [[ -n "$BUILTIN_AGENT_SYSTEM_PROMPT" ]]; then
+        SYSTEM_PROMPT_FILE="$BUILTIN_AGENT_SYSTEM_PROMPT"
+        SYSTEM_PROMPT=""
+    fi
+    
+    # Load prompts from files
+    if [[ -z "$PROMPT" && -n "$PROMPT_FILE" ]]; then
+        PROMPT=$(load_file_content "$PROMPT_FILE" "Prompt")
+    fi
+    if [[ -z "$SYSTEM_PROMPT" && -n "$SYSTEM_PROMPT_FILE" ]]; then
+        SYSTEM_PROMPT=$(load_file_content "$SYSTEM_PROMPT_FILE" "System prompt")
+    fi
+    
+    # Build and execute command
+    local copilot_cmd
+    copilot_cmd=$(build_copilot_command)
+    
+    echo "Agent command: $copilot_cmd" >&2
+    echo "" >&2
+    
+    local exit_code=0
+    
+    # Execute with output capture
+    {
+        echo "# Agent: ${agent_name}"
+        echo "## Execution Time: $(date -Iseconds)"
+        echo ""
+        
+        if [[ "$DRY_RUN" == "true" ]]; then
+            echo "[DRY RUN] Command: $copilot_cmd"
+        else
+            if command -v timeout &> /dev/null; then
+                timeout --preserve-status "${TIMEOUT_MINUTES}m" bash -c "$copilot_cmd" 2>&1 || exit_code=$?
+            else
+                eval "$copilot_cmd" 2>&1 || exit_code=$?
+            fi
+        fi
+    } | tee "$output_file"
+    
+    local end_time=$(date +%s)
+    local duration=$((end_time - start_time))
+    
+    # Restore original values
+    CONFIG_FILE="$orig_config_file"
+    PROMPT_FILE="$orig_prompt_file"
+    SYSTEM_PROMPT_FILE="$orig_system_prompt_file"
+    PROMPT="$orig_prompt"
+    SYSTEM_PROMPT="$orig_system_prompt"
+    
+    # Report status
+    if [[ $exit_code -eq 0 ]]; then
+        echo "" >&2
+        echo "Agent '${agent_name}' completed successfully (${duration}s)" >&2
+    else
+        echo "" >&2
+        echo "Agent '${agent_name}' failed with exit code ${exit_code} (${duration}s)" >&2
+    fi
+    
+    return $exit_code
+}
+
+# Function to run multiple agents sequentially
+run_agent_queue() {
+    local agents_string="$1"
+    local error_mode="$2"
+    
+    # Create output directory
+    local timestamp=$(date +%Y-%m-%d_%H%M%S)
+    local output_base_dir="${HOME}/.copilot-cli-automation/runs"
+    local output_dir="${output_base_dir}/${timestamp}"
+    mkdir -p "$output_dir"
+    
+    # Parse and validate agents
+    local agents_array
+    if ! agents_array=$(validate_agent_list "$agents_string"); then
+        return 1
+    fi
+    
+    # Convert to array
+    read -ra agents <<< "$agents_array"
+    local total_agents=${#agents[@]}
+    
+    if [[ $total_agents -eq 0 ]]; then
+        echo "Error: No agents specified" >&2
+        return 1
+    fi
+    
+    echo ""
+    echo "===== Multi-Agent Execution ====="
+    echo "Agents to run: ${agents[*]}"
+    echo "Error mode: $error_mode"
+    echo "Output directory: $output_dir"
+    echo "================================="
+    echo ""
+    
+    # Track results
+    local passed=0
+    local failed=0
+    local results=()
+    local start_total=$(date +%s)
+    
+    # Run each agent
+    local index=1
+    for agent_name in "${agents[@]}"; do
+        local agent_start=$(date +%s)
+        local status="PASSED"
+        
+        if run_single_agent "$agent_name" "$index" "$total_agents" "$output_dir"; then
+            ((passed++))
+        else
+            ((failed++))
+            status="FAILED"
+            
+            if [[ "$error_mode" == "stop" ]]; then
+                echo ""
+                echo "Error mode is 'stop'. Aborting remaining agents." >&2
+                break
+            fi
+        fi
+        
+        local agent_end=$(date +%s)
+        local agent_duration=$((agent_end - agent_start))
+        results+=("${agent_name}|${status}|${agent_duration}")
+        
+        ((index++))
+    done
+    
+    local end_total=$(date +%s)
+    local total_duration=$((end_total - start_total))
+    
+    # Generate summary
+    echo ""
+    echo "===== Multi-Agent Run Summary ====="
+    echo "Total agents: $total_agents | Passed: $passed | Failed: $failed"
+    echo "Total duration: ${total_duration}s"
+    echo ""
+    
+    # Print individual results
+    for result in "${results[@]}"; do
+        IFS='|' read -r name status duration <<< "$result"
+        printf "  %-25s [%s] (%ss)\n" "$name" "$status" "$duration"
+    done
+    
+    echo ""
+    echo "Outputs saved to: $output_dir"
+    echo "===================================="
+    
+    # Save summary to file
+    {
+        echo "# Multi-Agent Run Summary"
+        echo "## $(date -Iseconds)"
+        echo ""
+        echo "- **Total agents:** $total_agents"
+        echo "- **Passed:** $passed"
+        echo "- **Failed:** $failed"
+        echo "- **Total duration:** ${total_duration}s"
+        echo "- **Error mode:** $error_mode"
+        echo ""
+        echo "## Results"
+        echo ""
+        for result in "${results[@]}"; do
+            IFS='|' read -r name status duration <<< "$result"
+            echo "- **$name**: $status (${duration}s)"
+        done
+    } > "${output_dir}/SUMMARY.md"
+    
+    # Return failure if any agent failed
+    [[ $failed -eq 0 ]]
 }
 
 # Function to load content from file preserving formatting
@@ -1145,6 +1411,14 @@ while [[ $# -gt 0 ]]; do
             LIST_AGENTS="true"
             shift
             ;;
+        --agents)
+            AGENTS="$2"
+            shift 2
+            ;;
+        --agent-error-mode)
+            AGENT_ERROR_MODE="$2"
+            shift 2
+            ;;
         --use-defaults)
             USE_DEFAULTS="true"
             shift
@@ -1171,6 +1445,27 @@ fi
 if [[ "$LIST_AGENTS" == "true" ]]; then
     show_builtin_agents
     exit 0
+fi
+
+# Check for mutual exclusivity of --agent and --agents
+if [[ -n "$AGENT" ]] && [[ -n "$AGENTS" ]]; then
+    echo "Error: Cannot use both --agent and --agents together." >&2
+    echo "Use --agent for a single agent, or --agents for multiple agents." >&2
+    exit 1
+fi
+
+# Handle --agents: run multiple agents sequentially
+if [[ -n "$AGENTS" ]]; then
+    # Setup dependencies and auth first
+    check_dependencies
+    setup_github_auth
+    
+    # Run the agent queue
+    if run_agent_queue "$AGENTS" "$AGENT_ERROR_MODE"; then
+        exit 0
+    else
+        exit 1
+    fi
 fi
 
 # Handle --agent: check if it's a built-in agent first
