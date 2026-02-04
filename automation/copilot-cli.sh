@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # GitHub Copilot CLI Wrapper Script
-# Provides the same functionality as the GitHub Action but for local execution
-# Supports configuration via properties file and command line arguments
+# A zero-config wrapper for GitHub Copilot CLI with prompt repository integration,
+# automatic installation, and CI/CD-optimized execution.
 
 set -e
 
@@ -32,79 +32,128 @@ NODE_VERSION="22"
 TIMEOUT_MINUTES="30"
 DRY_RUN="false"
 VERBOSE="false"
+NO_COLOR="false"
+
+# New: Prompt repository options
+USE_PROMPT=""
+DEFAULT_PROMPT_REPO="github/awesome-copilot"
+PROMPT_CACHE_DIR=""
+LIST_PROMPTS="false"
+SEARCH_PROMPTS=""
+PROMPT_INFO=""
+UPDATE_PROMPT_CACHE="false"
+
+# New: CLI parity options
+AGENT=""
+ALLOW_ALL_URLS="false"
+ALLOW_URLS=""
+DENY_URLS=""
+AVAILABLE_TOOLS=""
+EXCLUDED_TOOLS=""
+ADD_GITHUB_MCP_TOOL=""
+ADD_GITHUB_MCP_TOOLSET=""
+NO_ASK_USER="false"
+SILENT="false"
+CONFIG_DIR=""
+SHARE=""
+SHARE_GIST="false"
+RESUME=""
+CONTINUE_SESSION="false"
+INIT="false"
 
 # Function to show usage
 show_usage() {
-    cat << EOF
+    cat << 'EOF'
 GitHub Copilot CLI Wrapper Script
 
-Usage: $0 [OPTIONS]
+A zero-config wrapper for GitHub Copilot CLI with prompt repository integration,
+automatic installation, and CI/CD-optimized execution.
 
-OPTIONS:
-    -c, --config FILE               Configuration properties file (default: copilot-cli.properties)
-    -p, --prompt TEXT              The prompt to execute with Copilot CLI (required unless --prompt-file is provided)
-    --prompt-file FILE             Path to text/markdown file containing the prompt (overridden by -p/--prompt)
-    -s, --system-prompt TEXT       System prompt with guidelines to be emphasized and followed
-    --system-prompt-file FILE      Path to text/markdown file containing the system prompt (overridden by -s/--system-prompt)
-    -t, --github-token TOKEN       GitHub Personal Access Token for authentication
-    -m, --model MODEL              AI model to use (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
-    --auto-install-cli BOOL        Automatically install Copilot CLI if not found (true/false, default: true)
-    --mcp-config TEXT              MCP server configuration as JSON string
-    --mcp-config-file FILE         MCP server configuration file path
-    --allow-all-tools BOOL         Allow all tools to run automatically (true/false)
-    --allow-all-paths BOOL         Allow access to any path (true/false)
-    --additional-dirs DIRS         Comma-separated list of additional directories
+Usage: ./copilot-cli.sh [OPTIONS]
+
+QUICK START:
+    ./copilot-cli.sh --use-prompt code-review           # Use pre-built prompt
+    ./copilot-cli.sh --prompt "Review this code"        # Direct prompt
+    ./copilot-cli.sh --init                             # Initialize project config
+    ./copilot-cli.sh --list-prompts                     # Browse available prompts
+
+PROMPT REPOSITORY OPTIONS:
+    --use-prompt NAME              Use a prompt from GitHub repository
+                                   Format: name (uses default repo) or owner/repo:name
+    --default-prompt-repo REPO     Default repository for prompts (default: github/awesome-copilot)
+    --prompt-cache-dir DIR         Directory to cache downloaded prompts
+    --list-prompts                 List available prompts from default repository
+    --search-prompts QUERY         Search prompts by keyword
+    --prompt-info NAME             Show detailed information about a prompt
+    --update-prompt-cache          Force refresh of cached prompts
+
+PROMPT OPTIONS:
+    -c, --config FILE              Configuration properties file (default: copilot-cli.properties)
+    -p, --prompt TEXT              The prompt to execute
+    --prompt-file FILE             Load prompt from text/markdown file
+    -s, --system-prompt TEXT       System prompt with guidelines to emphasize
+    --system-prompt-file FILE      Load system prompt from file
+
+MODEL & AGENT OPTIONS:
+    -m, --model MODEL              AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
+    --agent AGENT                  Specify a custom agent to use
+
+TOOL PERMISSIONS:
+    --allow-all-tools BOOL         Allow all tools automatically (default: true)
+    --allow-all-paths BOOL         Allow access to any filesystem path (default: false)
+    --allow-all-urls BOOL          Allow access to all URLs (default: false)
     --allowed-tools TOOLS          Comma-separated list of allowed tools
     --denied-tools TOOLS           Comma-separated list of denied tools
-    --disable-builtin-mcps BOOL    Disable all built-in MCP servers (true/false)
+    --available-tools TOOLS        Limit which tools are available
+    --excluded-tools TOOLS         Exclude specific tools
+    --allow-urls URLS              Comma-separated list of allowed URLs/domains
+    --deny-urls URLS               Comma-separated list of denied URLs/domains
+    --additional-dirs DIRS         Comma-separated list of additional directories
+
+MCP SERVER OPTIONS:
+    --mcp-config TEXT              MCP server configuration as JSON string
+    --mcp-config-file FILE         MCP server configuration file path
+    --disable-builtin-mcps BOOL    Disable all built-in MCP servers (default: false)
     --disable-mcp-servers SERVERS  Comma-separated list of MCP servers to disable
-    --enable-all-github-tools BOOL Enable all GitHub MCP tools (true/false)
-    --log-level LEVEL              Log level (none, error, warning, info, debug, all)
+    --enable-all-github-tools BOOL Enable all GitHub MCP tools (default: false)
+    --add-github-mcp-tool TOOLS    Add specific GitHub MCP tools
+    --add-github-mcp-toolset SETS  Add GitHub MCP toolsets
+
+SESSION & OUTPUT OPTIONS:
+    --continue                     Resume the most recent session
+    --resume SESSION-ID            Resume a specific session
+    --share PATH                   Save session to markdown file
+    --share-gist                   Share session as a secret GitHub gist
+    --silent                       Output only agent response
+
+EXECUTION OPTIONS:
+    --no-ask-user BOOL             Disable interactive questions (autonomous mode)
+    --config-dir PATH              Set the configuration directory
     --working-dir DIR              Working directory to run from
-    --timeout MINUTES              Timeout in minutes
+    --timeout MINUTES              Timeout in minutes (default: 30)
+    --log-level LEVEL              Log level (none, error, warning, info, debug, all)
+    --no-color                     Disable colored output
     --dry-run                      Show command without executing
     --verbose                      Enable verbose output
+
+SETUP OPTIONS:
+    -t, --github-token TOKEN       GitHub Personal Access Token
+    --auto-install-cli BOOL        Auto-install Copilot CLI if not found (default: true)
+    --init                         Initialize project with starter configuration
     -h, --help                     Show this help message
 
 EXAMPLES:
-    # Basic usage with prompt
-    $0 --prompt "Review the code for issues"
+    # Use a pre-built prompt from awesome-copilot
+    ./copilot-cli.sh --use-prompt code-review
     
-    # Using prompt from file
-    $0 --prompt-file user.prompt.md
+    # Use a prompt from a custom repository
+    ./copilot-cli.sh --use-prompt myorg/prompts:security-audit
     
-    # With system prompt for guidelines
-    $0 --prompt "Review the code" --system-prompt "Focus on security and performance issues only"
+    # Autonomous mode for CI/CD
+    ./copilot-cli.sh --use-prompt code-review --no-ask-user true --silent
     
-    # With system prompt from file
-    $0 --prompt "Review the code" --system-prompt-file system.prompt.md
-    
-    # Command line prompt overrides file
-    $0 --prompt-file user.prompt.md --prompt "Override with this prompt"
-    
-    # With GitHub token authentication
-    $0 --prompt "Review the code" --github-token "ghp_xxxxxxxxxxxxxxxxxxxx"
-    
-    # Using custom configuration file
-    $0 --config my-config.properties --prompt "Analyze security"
-    
-    # With MCP configuration file
-    $0 --prompt "Use custom tools" --mcp-config-file examples/mcp-config.json
-    
-    # Dry run to see generated command
-    $0 --prompt "Test" --dry-run
-
-AUTHENTICATION:
-    GitHub Copilot CLI requires authentication via one of these methods (in order of precedence):
-    1. --github-token command line argument
-    2. github.token in properties file  
-    3. GH_TOKEN environment variable
-    4. GITHUB_TOKEN environment variable
-    5. Existing GitHub CLI authentication (gh auth login)
-
-CONFIGURATION FILE:
-    Create a .properties file with key=value pairs for any option.
-    Command line arguments override configuration file values.
+    # Initialize a new project
+    ./copilot-cli.sh --init
 
 EOF
 }
@@ -124,6 +173,247 @@ parse_bool() {
         false|no|0|off) echo "false" ;;
         *) echo "$value" ;;
     esac
+}
+
+# Function to get prompt cache directory
+get_prompt_cache_dir() {
+    if [[ -n "$PROMPT_CACHE_DIR" ]]; then
+        echo "$PROMPT_CACHE_DIR"
+    else
+        echo "${HOME}/.copilot-cli-automation/prompts"
+    fi
+}
+
+# Function to parse prompt reference (owner/repo:name or just name)
+parse_prompt_reference() {
+    local reference="$1"
+    
+    if [[ "$reference" =~ ^([^/:]+)/([^/:]+):(.+)$ ]]; then
+        PARSED_OWNER="${BASH_REMATCH[1]}"
+        PARSED_REPO="${BASH_REMATCH[2]}"
+        PARSED_FULL_REPO="${PARSED_OWNER}/${PARSED_REPO}"
+        local path_and_name="${BASH_REMATCH[3]}"
+        
+        if [[ "$path_and_name" =~ ^(.+)/([^/]+)$ ]]; then
+            PARSED_PATH="${BASH_REMATCH[1]}"
+            PARSED_NAME="${BASH_REMATCH[2]}"
+        else
+            PARSED_PATH="prompts"
+            PARSED_NAME="$path_and_name"
+        fi
+    else
+        IFS='/' read -r PARSED_OWNER PARSED_REPO <<< "$DEFAULT_PROMPT_REPO"
+        PARSED_FULL_REPO="$DEFAULT_PROMPT_REPO"
+        PARSED_PATH="prompts"
+        PARSED_NAME="$reference"
+    fi
+}
+
+# Function to get cached prompt path
+get_cached_prompt_path() {
+    local cache_dir
+    cache_dir=$(get_prompt_cache_dir)
+    local repo_dir="${cache_dir}/${PARSED_OWNER}/${PARSED_REPO}"
+    
+    local file_name="$PARSED_NAME"
+    if [[ ! "$file_name" =~ \.prompt\.md$ ]]; then
+        file_name="${file_name}.prompt.md"
+    fi
+    
+    echo "${repo_dir}/${file_name}"
+}
+
+# Function to fetch prompt from GitHub repository
+get_remote_prompt() {
+    local prompt_reference="$1"
+    local force_refresh="${2:-false}"
+    
+    parse_prompt_reference "$prompt_reference"
+    local cached_path
+    cached_path=$(get_cached_prompt_path)
+    
+    if [[ "$force_refresh" != "true" && -f "$cached_path" ]]; then
+        log "Using cached prompt: $cached_path"
+        cat "$cached_path"
+        return 0
+    fi
+    
+    local file_name="$PARSED_NAME"
+    if [[ ! "$file_name" =~ \.prompt\.md$ ]]; then
+        file_name="${file_name}.prompt.md"
+    fi
+    
+    local url="https://raw.githubusercontent.com/${PARSED_FULL_REPO}/main/${PARSED_PATH}/${file_name}"
+    
+    echo "Fetching prompt from: $url" >&2
+    log "Fetching prompt from URL: $url"
+    
+    local content
+    if content=$(curl -fsSL "$url" 2>/dev/null); then
+        local cache_dir
+        cache_dir=$(dirname "$cached_path")
+        mkdir -p "$cache_dir"
+        echo "$content" > "$cached_path"
+        log "Cached prompt to: $cached_path"
+        echo "$content"
+    else
+        if [[ -f "$cached_path" ]]; then
+            echo "Warning: Could not fetch remote prompt, using cached version" >&2
+            cat "$cached_path"
+        else
+            echo "Error: Failed to fetch prompt '$prompt_reference' from $url" >&2
+            exit 1
+        fi
+    fi
+}
+
+# Function to parse prompt file frontmatter
+parse_prompt_frontmatter() {
+    local content="$1"
+    
+    FRONTMATTER_DESCRIPTION=""
+    FRONTMATTER_TOOLS=""
+    FRONTMATTER_AGENT=""
+    FRONTMATTER_BODY="$content"
+    
+    # Simple frontmatter extraction
+    if [[ "$content" == ---* ]]; then
+        local body_start
+        body_start=$(echo "$content" | grep -n "^---$" | sed -n '2p' | cut -d: -f1)
+        if [[ -n "$body_start" ]]; then
+            FRONTMATTER_BODY=$(echo "$content" | tail -n +$((body_start + 1)))
+            local frontmatter
+            frontmatter=$(echo "$content" | head -n $((body_start - 1)) | tail -n +2)
+            
+            if echo "$frontmatter" | grep -q "description:"; then
+                FRONTMATTER_DESCRIPTION=$(echo "$frontmatter" | grep "description:" | sed "s/description:[[:space:]]*['\"]\\?\\([^'\"]*\\)['\"]\\?.*/\\1/")
+            fi
+            if echo "$frontmatter" | grep -q "agent:"; then
+                FRONTMATTER_AGENT=$(echo "$frontmatter" | grep "agent:" | sed "s/agent:[[:space:]]*['\"]\\?\\([^'\"]*\\)['\"]\\?.*/\\1/")
+            fi
+        fi
+    fi
+}
+
+# Function to list prompts from a repository
+get_prompt_list() {
+    local repo="${1:-$DEFAULT_PROMPT_REPO}"
+    local api_url="https://api.github.com/repos/${repo}/contents/prompts"
+    
+    echo "Fetching prompt list from: $repo" >&2
+    
+    local auth_header=""
+    if [[ -n "$GH_TOKEN" ]]; then
+        auth_header="-H \"Authorization: token $GH_TOKEN\""
+    fi
+    
+    local response
+    if response=$(eval curl -fsSL $auth_header "$api_url" 2>/dev/null); then
+        echo "$response" | grep -o '"name": "[^"]*\.prompt\.md"' | sed 's/"name": "//g; s/\.prompt\.md"//g'
+    else
+        echo "Error: Failed to list prompts from $repo" >&2
+        exit 1
+    fi
+}
+
+# Function to show prompt information
+show_prompt_info() {
+    local prompt_reference="$1"
+    
+    local content
+    content=$(get_remote_prompt "$prompt_reference")
+    parse_prompt_frontmatter "$content"
+    parse_prompt_reference "$prompt_reference"
+    
+    echo ""
+    echo "Prompt: $PARSED_NAME"
+    echo "Repository: $PARSED_FULL_REPO"
+    echo ""
+    
+    if [[ -n "$FRONTMATTER_DESCRIPTION" ]]; then
+        echo "Description: $FRONTMATTER_DESCRIPTION"
+        echo ""
+    fi
+    
+    if [[ -n "$FRONTMATTER_AGENT" ]]; then
+        echo "Agent: $FRONTMATTER_AGENT"
+    fi
+    
+    echo "Preview (first 500 chars):"
+    echo "${FRONTMATTER_BODY:0:500}..."
+}
+
+# Function to display prompt list
+show_prompt_list() {
+    local prompts="$1"
+    
+    if [[ -z "$prompts" ]]; then
+        echo "No prompts found."
+        return
+    fi
+    
+    local count
+    count=$(echo "$prompts" | wc -l)
+    
+    echo ""
+    echo "Available Prompts ($count found):"
+    echo ""
+    
+    echo "$prompts" | sort | while read -r prompt; do
+        echo "  $prompt"
+    done
+    
+    echo ""
+    echo "Usage: --use-prompt <name> or --use-prompt owner/repo:name"
+}
+
+# Function to initialize a new project with copilot-cli configuration
+initialize_project() {
+    local config_path="./copilot-cli.properties"
+    
+    if [[ -f "$config_path" ]]; then
+        echo "Configuration file already exists: $config_path"
+        return
+    fi
+    
+    cat > "$config_path" << 'CONFIGEOF'
+# Copilot CLI Wrapper Configuration
+# Generated by copilot-cli.sh --init
+
+prompt.file=user.prompt.md
+system.prompt.file=system.prompt.md
+copilot.model=claude-sonnet-4.5
+allow.all.tools=true
+allow.all.paths=false
+timeout.minutes=30
+log.level=info
+CONFIGEOF
+
+    cat > "./user.prompt.md" << 'USEREOF'
+# User Prompt
+
+Analyze this codebase and provide a summary of:
+1. The project structure and architecture
+2. Key technologies and frameworks used
+3. Potential areas for improvement
+USEREOF
+
+    cat > "./system.prompt.md" << 'SYSEOF'
+# System Prompt
+
+You are a helpful AI assistant focused on code quality and best practices.
+Please follow these guidelines:
+- Be thorough but concise in your analysis
+- Provide actionable recommendations
+- Consider security, performance, and maintainability
+SYSEOF
+
+    echo "Initialized Copilot CLI configuration:"
+    echo "  - $config_path"
+    echo "  - ./user.prompt.md"
+    echo "  - ./system.prompt.md"
+    echo ""
+    echo "Edit these files and run: ./copilot-cli.sh"
 }
 
 # Function to load content from file preserving formatting
@@ -193,6 +483,23 @@ load_config() {
                 working.directory) WORKING_DIRECTORY="$value" ;;
                 node.version) NODE_VERSION="$value" ;;
                 timeout.minutes) TIMEOUT_MINUTES="$value" ;;
+                # New: Prompt repository options
+                use.prompt) [[ -z "$USE_PROMPT" ]] && USE_PROMPT="$value" ;;
+                default.prompt.repo) DEFAULT_PROMPT_REPO="$value" ;;
+                prompt.cache.dir) [[ -z "$PROMPT_CACHE_DIR" ]] && PROMPT_CACHE_DIR="$value" ;;
+                # New: CLI parity options
+                agent) [[ -z "$AGENT" ]] && AGENT="$value" ;;
+                allow.all.urls) ALLOW_ALL_URLS=$(parse_bool "$value") ;;
+                allow.urls) [[ -z "$ALLOW_URLS" ]] && ALLOW_URLS="$value" ;;
+                deny.urls) [[ -z "$DENY_URLS" ]] && DENY_URLS="$value" ;;
+                available.tools) [[ -z "$AVAILABLE_TOOLS" ]] && AVAILABLE_TOOLS="$value" ;;
+                excluded.tools) [[ -z "$EXCLUDED_TOOLS" ]] && EXCLUDED_TOOLS="$value" ;;
+                add.github.mcp.tool) [[ -z "$ADD_GITHUB_MCP_TOOL" ]] && ADD_GITHUB_MCP_TOOL="$value" ;;
+                add.github.mcp.toolset) [[ -z "$ADD_GITHUB_MCP_TOOLSET" ]] && ADD_GITHUB_MCP_TOOLSET="$value" ;;
+                no.ask.user) NO_ASK_USER=$(parse_bool "$value") ;;
+                config.dir) [[ -z "$CONFIG_DIR" ]] && CONFIG_DIR="$value" ;;
+                share) [[ -z "$SHARE" ]] && SHARE="$value" ;;
+                resume) [[ -z "$RESUME" ]] && RESUME="$value" ;;
             esac
         done < "$config_file"
     else
@@ -309,13 +616,43 @@ $PROMPT"
         cmd="$cmd --model $COPILOT_MODEL"
     fi
     
+    # Add agent if specified
+    if [[ -n "$AGENT" ]]; then
+        cmd="$cmd --agent \"$AGENT\""
+    fi
+    
     # Add tool permissions
     if [[ "$ALLOW_ALL_TOOLS" == "true" ]]; then
         cmd="$cmd --allow-all-tools"
     fi
     
-    # Always add --allow-all-paths flag
-    cmd="$cmd --allow-all-paths"
+    # Add --allow-all-paths flag only if explicitly enabled (FIXED: was always adding this)
+    if [[ "$ALLOW_ALL_PATHS" == "true" ]]; then
+        cmd="$cmd --allow-all-paths"
+    fi
+    
+    # Add URL permissions
+    if [[ "$ALLOW_ALL_URLS" == "true" ]]; then
+        cmd="$cmd --allow-all-urls"
+    fi
+    
+    # Add allowed URLs
+    if [[ -n "$ALLOW_URLS" ]]; then
+        IFS=',' read -ra URLS <<< "$ALLOW_URLS"
+        for url in "${URLS[@]}"; do
+            url=$(echo "$url" | xargs)
+            cmd="$cmd --allow-url \"$url\""
+        done
+    fi
+    
+    # Add denied URLs
+    if [[ -n "$DENY_URLS" ]]; then
+        IFS=',' read -ra URLS <<< "$DENY_URLS"
+        for url in "${URLS[@]}"; do
+            url=$(echo "$url" | xargs)
+            cmd="$cmd --deny-url \"$url\""
+        done
+    fi
     
     # Add allowed tools
     if [[ -n "$ALLOWED_TOOLS" ]]; then
@@ -332,6 +669,24 @@ $PROMPT"
         for tool in "${TOOLS[@]}"; do
             tool=$(echo "$tool" | xargs)  # Trim whitespace
             cmd="$cmd --deny-tool \"$tool\""
+        done
+    fi
+    
+    # Add available tools
+    if [[ -n "$AVAILABLE_TOOLS" ]]; then
+        IFS=',' read -ra TOOLS <<< "$AVAILABLE_TOOLS"
+        for tool in "${TOOLS[@]}"; do
+            tool=$(echo "$tool" | xargs)
+            cmd="$cmd --available-tools \"$tool\""
+        done
+    fi
+    
+    # Add excluded tools
+    if [[ -n "$EXCLUDED_TOOLS" ]]; then
+        IFS=',' read -ra TOOLS <<< "$EXCLUDED_TOOLS"
+        for tool in "${TOOLS[@]}"; do
+            tool=$(echo "$tool" | xargs)
+            cmd="$cmd --excluded-tools \"$tool\""
         done
     fi
     
@@ -370,6 +725,24 @@ $PROMPT"
         cmd="$cmd --enable-all-github-mcp-tools"
     fi
     
+    # Add GitHub MCP tools
+    if [[ -n "$ADD_GITHUB_MCP_TOOL" ]]; then
+        IFS=',' read -ra TOOLS <<< "$ADD_GITHUB_MCP_TOOL"
+        for tool in "${TOOLS[@]}"; do
+            tool=$(echo "$tool" | xargs)
+            cmd="$cmd --add-github-mcp-tool \"$tool\""
+        done
+    fi
+    
+    # Add GitHub MCP toolsets
+    if [[ -n "$ADD_GITHUB_MCP_TOOLSET" ]]; then
+        IFS=',' read -ra TOOLSETS <<< "$ADD_GITHUB_MCP_TOOLSET"
+        for toolset in "${TOOLSETS[@]}"; do
+            toolset=$(echo "$toolset" | xargs)
+            cmd="$cmd --add-github-mcp-toolset \"$toolset\""
+        done
+    fi
+    
     # Add disabled MCP servers
     if [[ -n "$DISABLE_MCP_SERVERS" ]]; then
         IFS=',' read -ra SERVERS <<< "$DISABLE_MCP_SERVERS"
@@ -379,9 +752,47 @@ $PROMPT"
         done
     fi
     
+    # Add autonomous mode
+    if [[ "$NO_ASK_USER" == "true" ]]; then
+        cmd="$cmd --no-ask-user"
+    fi
+    
+    # Add config directory
+    if [[ -n "$CONFIG_DIR" ]]; then
+        cmd="$cmd --config-dir \"$CONFIG_DIR\""
+    fi
+    
+    # Add session resume options
+    if [[ "$CONTINUE_SESSION" == "true" ]]; then
+        cmd="$cmd --continue"
+    elif [[ -n "$RESUME" ]]; then
+        cmd="$cmd --resume \"$RESUME\""
+    fi
+    
+    # Add share options
+    if [[ -n "$SHARE" ]]; then
+        cmd="$cmd --share \"$SHARE\""
+    fi
+    if [[ "$SHARE_GIST" == "true" ]]; then
+        cmd="$cmd --share-gist"
+    fi
+    
+    # Add silent mode
+    if [[ "$SILENT" == "true" ]]; then
+        cmd="$cmd --silent"
+    fi
+    
     # Add log level
     if [[ -n "$LOG_LEVEL" ]]; then
         cmd="$cmd --log-level $LOG_LEVEL"
+    fi
+    
+    # Add no-color flag conditionally (auto-detect CI/CD)
+    local is_ci="false"
+    [[ -n "$CI" || -n "$GITHUB_ACTIONS" || -n "$TF_BUILD" || -n "$JENKINS_URL" ]] && is_ci="true"
+    if [[ "$NO_COLOR" == "true" || "$is_ci" == "true" ]]; then
+        cmd="$cmd --no-color"
+        log "No-color mode enabled for better output compatibility"
     fi
     
     echo "$cmd"
@@ -428,6 +839,10 @@ while [[ $# -gt 0 ]]; do
             COPILOT_MODEL="$2"
             shift 2
             ;;
+        --agent)
+            AGENT="$2"
+            shift 2
+            ;;
         --auto-install-cli)
             AUTO_INSTALL_CLI=$(parse_bool "$2")
             shift 2
@@ -448,6 +863,18 @@ while [[ $# -gt 0 ]]; do
             ALLOW_ALL_PATHS=$(parse_bool "$2")
             shift 2
             ;;
+        --allow-all-urls)
+            ALLOW_ALL_URLS=$(parse_bool "$2")
+            shift 2
+            ;;
+        --allow-urls)
+            ALLOW_URLS="$2"
+            shift 2
+            ;;
+        --deny-urls)
+            DENY_URLS="$2"
+            shift 2
+            ;;
         --additional-dirs)
             ADDITIONAL_DIRECTORIES="$2"
             shift 2
@@ -458,6 +885,14 @@ while [[ $# -gt 0 ]]; do
             ;;
         --denied-tools)
             DENIED_TOOLS="$2"
+            shift 2
+            ;;
+        --available-tools)
+            AVAILABLE_TOOLS="$2"
+            shift 2
+            ;;
+        --excluded-tools)
+            EXCLUDED_TOOLS="$2"
             shift 2
             ;;
         --disable-builtin-mcps)
@@ -472,6 +907,42 @@ while [[ $# -gt 0 ]]; do
             ENABLE_ALL_GITHUB_MCP_TOOLS=$(parse_bool "$2")
             shift 2
             ;;
+        --add-github-mcp-tool)
+            ADD_GITHUB_MCP_TOOL="$2"
+            shift 2
+            ;;
+        --add-github-mcp-toolset)
+            ADD_GITHUB_MCP_TOOLSET="$2"
+            shift 2
+            ;;
+        --no-ask-user)
+            NO_ASK_USER=$(parse_bool "$2")
+            shift 2
+            ;;
+        --silent)
+            SILENT="true"
+            shift
+            ;;
+        --config-dir)
+            CONFIG_DIR="$2"
+            shift 2
+            ;;
+        --share)
+            SHARE="$2"
+            shift 2
+            ;;
+        --share-gist)
+            SHARE_GIST="true"
+            shift
+            ;;
+        --continue)
+            CONTINUE_SESSION="true"
+            shift
+            ;;
+        --resume)
+            RESUME="$2"
+            shift 2
+            ;;
         --log-level)
             LOG_LEVEL="$2"
             shift 2
@@ -484,12 +955,49 @@ while [[ $# -gt 0 ]]; do
             TIMEOUT_MINUTES="$2"
             shift 2
             ;;
+        --no-color)
+            NO_COLOR="true"
+            shift
+            ;;
         --dry-run)
             DRY_RUN="true"
             shift
             ;;
         --verbose)
             VERBOSE="true"
+            shift
+            ;;
+        # New: Prompt repository options
+        --use-prompt)
+            USE_PROMPT="$2"
+            shift 2
+            ;;
+        --default-prompt-repo)
+            DEFAULT_PROMPT_REPO="$2"
+            shift 2
+            ;;
+        --prompt-cache-dir)
+            PROMPT_CACHE_DIR="$2"
+            shift 2
+            ;;
+        --list-prompts)
+            LIST_PROMPTS="true"
+            shift
+            ;;
+        --search-prompts)
+            SEARCH_PROMPTS="$2"
+            shift 2
+            ;;
+        --prompt-info)
+            PROMPT_INFO="$2"
+            shift 2
+            ;;
+        --update-prompt-cache)
+            UPDATE_PROMPT_CACHE="true"
+            shift
+            ;;
+        --init)
+            INIT="true"
             shift
             ;;
         -h|--help)
@@ -504,8 +1012,72 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
+# Handle --init command
+if [[ "$INIT" == "true" ]]; then
+    initialize_project
+    exit 0
+fi
+
 # Load configuration file
 load_config "$CONFIG_FILE"
+
+# Setup GitHub authentication early (needed for API calls)
+setup_github_auth
+
+# Handle --list-prompts command
+if [[ "$LIST_PROMPTS" == "true" ]]; then
+    prompts=$(get_prompt_list "$DEFAULT_PROMPT_REPO")
+    show_prompt_list "$prompts"
+    exit 0
+fi
+
+# Handle --search-prompts command
+if [[ -n "$SEARCH_PROMPTS" ]]; then
+    echo "Searching for '$SEARCH_PROMPTS' in $DEFAULT_PROMPT_REPO..."
+    prompts=$(get_prompt_list "$DEFAULT_PROMPT_REPO" | grep -i "$SEARCH_PROMPTS" || echo "")
+    show_prompt_list "$prompts"
+    exit 0
+fi
+
+# Handle --prompt-info command
+if [[ -n "$PROMPT_INFO" ]]; then
+    show_prompt_info "$PROMPT_INFO"
+    exit 0
+fi
+
+# Handle --update-prompt-cache command
+if [[ "$UPDATE_PROMPT_CACHE" == "true" ]]; then
+    echo "Updating prompt cache..."
+    prompts=$(get_prompt_list "$DEFAULT_PROMPT_REPO")
+    while read -r prompt; do
+        [[ -z "$prompt" ]] && continue
+        if get_remote_prompt "$prompt" "true" > /dev/null 2>&1; then
+            echo "  Cached: $prompt"
+        else
+            echo "  Failed: $prompt"
+        fi
+    done <<< "$prompts"
+    echo "Cache update complete."
+    exit 0
+fi
+
+# Handle --use-prompt: fetch prompt from remote repository
+if [[ -n "$USE_PROMPT" ]]; then
+    log "Fetching prompt: $USE_PROMPT"
+    prompt_content=$(get_remote_prompt "$USE_PROMPT")
+    parse_prompt_frontmatter "$prompt_content"
+    
+    # Use the prompt body as the main prompt
+    if [[ -z "$PROMPT" ]]; then
+        PROMPT="$FRONTMATTER_BODY"
+    fi
+    
+    # If the prompt specifies an agent and we don't have one, use it
+    if [[ -z "$AGENT" && -n "$FRONTMATTER_AGENT" ]]; then
+        AGENT="$FRONTMATTER_AGENT"
+        log "Using agent from prompt: $AGENT"
+    fi
+fi
 
 # Load prompts from files if specified (command line params override)
 # Load prompt from file if PROMPT_FILE is specified and PROMPT is empty

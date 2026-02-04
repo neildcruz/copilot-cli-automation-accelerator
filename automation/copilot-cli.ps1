@@ -28,7 +28,32 @@ param(
     [switch]$NoColor,
     [switch]$DryRun,
     [switch]$Verbose,
-    [switch]$Help
+    [switch]$Help,
+    # New: Prompt repository integration
+    [string]$UsePrompt = "",
+    [string]$DefaultPromptRepo = "github/awesome-copilot",
+    [string]$PromptCacheDir = "",
+    [switch]$ListPrompts,
+    [string]$SearchPrompts = "",
+    [string]$PromptInfo = "",
+    [switch]$UpdatePromptCache,
+    # New: CLI parity options
+    [string]$Agent = "",
+    [string]$AllowAllUrls = "false",
+    [string]$AllowUrls = "",
+    [string]$DenyUrls = "",
+    [string]$AvailableTools = "",
+    [string]$ExcludedTools = "",
+    [string]$AddGitHubMcpTool = "",
+    [string]$AddGitHubMcpToolset = "",
+    [string]$NoAskUser = "false",
+    [switch]$Silent,
+    [string]$ConfigDir = "",
+    [string]$Share = "",
+    [switch]$ShareGist,
+    [string]$Resume = "",
+    [switch]$Continue,
+    [switch]$Init
 )
 
 # Script directory
@@ -58,74 +83,142 @@ function Show-Usage {
     Write-Host @"
 GitHub Copilot CLI Wrapper Script (PowerShell)
 
+A zero-config wrapper for GitHub Copilot CLI with prompt repository integration,
+automatic installation, and CI/CD-optimized execution.
+
 Usage: .\copilot-cli.ps1 [OPTIONS]
 
-OPTIONS:
+QUICK START:
+    .\copilot-cli.ps1 -UsePrompt code-review           # Use pre-built prompt
+    .\copilot-cli.ps1 -Prompt "Review this code"       # Direct prompt
+    .\copilot-cli.ps1 -Init                            # Initialize project config
+    .\copilot-cli.ps1 -ListPrompts                     # Browse available prompts
+
+PROMPT REPOSITORY OPTIONS:
+    -UsePrompt NAME                Use a prompt from GitHub repository
+                                   Format: name (uses default repo) or owner/repo:name
+                                   Examples: code-review, myorg/prompts:security-scan
+    -DefaultPromptRepo REPO        Default repository for prompts (default: github/awesome-copilot)
+    -PromptCacheDir DIR            Directory to cache downloaded prompts
+    -ListPrompts                   List available prompts from default repository
+    -SearchPrompts QUERY           Search prompts by keyword (repo:keyword format supported)
+    -PromptInfo NAME               Show detailed information about a prompt
+    -UpdatePromptCache             Force refresh of cached prompts
+
+PROMPT OPTIONS:
     -Config FILE                   Configuration properties file (default: copilot-cli.properties)
-    -Prompt TEXT                   The prompt to execute with Copilot CLI (required unless -PromptFile is provided)
-    -PromptFile FILE               Path to text/markdown file containing the prompt (overridden by -Prompt)
-    -SystemPrompt TEXT             System prompt with guidelines to be emphasized and followed
-    -SystemPromptFile FILE         Path to text/markdown file containing the system prompt (overridden by -SystemPrompt)
-    -GithubToken TOKEN             GitHub Personal Access Token for authentication
-    -Model MODEL                   AI model to use (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
-    -AutoInstallCli BOOL           Automatically install Copilot CLI if not found (true/false, default: true)
-    -McpConfig TEXT                MCP server configuration as JSON string
-    -McpConfigFile FILE            MCP server configuration file path
-    -AllowAllTools BOOL            Allow all tools to run automatically (true/false)
-    -AllowAllPaths BOOL            Allow access to any path (true/false)
-    -AdditionalDirectories DIRS    Comma-separated list of additional directories
+    -Prompt TEXT                   The prompt to execute (required unless using other prompt options)
+    -PromptFile FILE               Load prompt from text/markdown file
+    -SystemPrompt TEXT             System prompt with guidelines to emphasize
+    -SystemPromptFile FILE         Load system prompt from file
+
+MODEL & AGENT OPTIONS:
+    -Model MODEL                   AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
+    -Agent AGENT                   Specify a custom agent to use
+
+TOOL PERMISSIONS:
+    -AllowAllTools BOOL            Allow all tools automatically (default: true)
+    -AllowAllPaths BOOL            Allow access to any filesystem path (default: false)
+    -AllowAllUrls BOOL             Allow access to all URLs (default: false)
     -AllowedTools TOOLS            Comma-separated list of allowed tools
     -DeniedTools TOOLS             Comma-separated list of denied tools
-    -DisableBuiltinMcps BOOL       Disable all built-in MCP servers (true/false)
+    -AvailableTools TOOLS          Limit which tools are available to the model
+    -ExcludedTools TOOLS           Exclude specific tools from the model
+    -AllowUrls URLS                Comma-separated list of allowed URLs/domains
+    -DenyUrls URLS                 Comma-separated list of denied URLs/domains
+    -AdditionalDirectories DIRS    Comma-separated list of additional directories
+
+MCP SERVER OPTIONS:
+    -McpConfig TEXT                MCP server configuration as JSON string
+    -McpConfigFile FILE            MCP server configuration file path
+    -DisableBuiltinMcps BOOL       Disable all built-in MCP servers (default: false)
     -DisableMcpServers SERVERS     Comma-separated list of MCP servers to disable
-    -EnableAllGithubMcpTools BOOL  Enable all GitHub MCP tools (true/false)
-    -LogLevel LEVEL                Log level (none, error, warning, info, debug, all)
+    -EnableAllGithubMcpTools BOOL  Enable all GitHub MCP tools (default: false)
+    -AddGitHubMcpTool TOOLS        Add specific GitHub MCP tools (comma-separated)
+    -AddGitHubMcpToolset TOOLSETS  Add GitHub MCP toolsets (comma-separated)
+
+SESSION & OUTPUT OPTIONS:
+    -Continue                      Resume the most recent session
+    -Resume SESSION-ID             Resume a specific session
+    -Share PATH                    Save session to markdown file after completion
+    -ShareGist                     Share session as a secret GitHub gist
+    -Silent                        Output only agent response (useful for scripting)
+
+EXECUTION OPTIONS:
+    -NoAskUser BOOL                Disable interactive questions (autonomous mode)
+    -ConfigDir PATH                Set the configuration directory
     -WorkingDirectory DIR          Working directory to run from
-    -TimeoutMinutes MINUTES        Timeout in minutes
-    -NoColor                       Disable colored output (automatically enabled for CI/CD)
-    -DryRun                        Show command without executing
+    -TimeoutMinutes MINUTES        Timeout in minutes (default: 30)
+    -LogLevel LEVEL                Log level (none, error, warning, info, debug, all)
+    -NoColor                       Disable colored output (auto-enabled for CI/CD)
+    -DryRun                        Show generated command without executing
     -Verbose                       Enable verbose output
+
+SETUP OPTIONS:
+    -GithubToken TOKEN             GitHub Personal Access Token for authentication
+    -AutoInstallCli BOOL           Auto-install Copilot CLI if not found (default: true)
+    -Init                          Initialize project with starter configuration files
     -Help                          Show this help message
 
 EXAMPLES:
-    # Basic usage with prompt
-    .\copilot-cli.ps1 -Prompt "Review the code for issues"
+    # Use a pre-built prompt from awesome-copilot
+    .\copilot-cli.ps1 -UsePrompt code-review
+    .\copilot-cli.ps1 -UsePrompt conventional-commit
     
-    # Using prompt from file
-    .\copilot-cli.ps1 -PromptFile "user.prompt.md"
+    # Use a prompt from a custom repository
+    .\copilot-cli.ps1 -UsePrompt myorg/internal-prompts:security-audit
     
-    # With system prompt for guidelines
-    .\copilot-cli.ps1 -Prompt "Review the code" -SystemPrompt "Focus on security and performance issues only"
+    # Set custom default repository for your organization
+    .\copilot-cli.ps1 -DefaultPromptRepo myorg/prompts -UsePrompt api-review
     
-    # With system prompt from file
-    .\copilot-cli.ps1 -Prompt "Review the code" -SystemPromptFile "system.prompt.md"
+    # Basic usage with inline prompt
+    .\copilot-cli.ps1 -Prompt "Review the code for security issues"
     
-    # Command line prompt overrides file
-    .\copilot-cli.ps1 -PromptFile "user.prompt.md" -Prompt "Override with this prompt"
+    # Load prompt from file with system guidelines
+    .\copilot-cli.ps1 -PromptFile task.md -SystemPromptFile guidelines.md
     
-    # With GitHub token authentication
-    .\copilot-cli.ps1 -Prompt "Review the code" -GithubToken "ghp_xxxxxxxxxxxxxxxxxxxx"
+    # Autonomous mode for CI/CD (no interactive questions)
+    .\copilot-cli.ps1 -UsePrompt code-review -NoAskUser true -Silent
     
-    # Using custom configuration file
-    .\copilot-cli.ps1 -Config "my-config.properties" -Prompt "Analyze security"
+    # Restricted permissions for security
+    .\copilot-cli.ps1 -Prompt "Analyze" -AllowAllPaths false -DeniedTools shell,bash
     
-    # With MCP configuration file
-    .\copilot-cli.ps1 -Prompt "Use custom tools" -McpConfigFile "examples\mcp-config.json"
+    # Initialize a new project with starter config
+    .\copilot-cli.ps1 -Init
     
-    # Dry run to see generated command
-    .\copilot-cli.ps1 -Prompt "Test" -DryRun
+    # Discover available prompts
+    .\copilot-cli.ps1 -ListPrompts
+    .\copilot-cli.ps1 -SearchPrompts security
+    .\copilot-cli.ps1 -PromptInfo code-review
+    
+    # Dry run to preview the command
+    .\copilot-cli.ps1 -UsePrompt code-review -DryRun
 
 AUTHENTICATION:
-    GitHub Copilot CLI requires authentication via one of these methods (in order of precedence):
+    GitHub Copilot CLI requires authentication (in order of precedence):
     1. -GithubToken command line parameter
     2. github.token in properties file  
-    3. GH_TOKEN environment variable
-    4. GITHUB_TOKEN environment variable
-    5. Existing GitHub CLI authentication (gh auth login)
+    3. COPILOT_GITHUB_TOKEN environment variable
+    4. GH_TOKEN environment variable
+    5. GITHUB_TOKEN environment variable
+    6. Existing GitHub CLI authentication (gh auth login)
 
-CONFIGURATION FILE:
-    Create a .properties file with key=value pairs for any option.
-    Command line arguments override configuration file values.
+CONFIGURATION FILE (copilot-cli.properties):
+    # Prompt options
+    use.prompt=code-review
+    default.prompt.repo=github/awesome-copilot
+    prompt.file=user.prompt.md
+    system.prompt.file=system.prompt.md
+    
+    # Tool permissions
+    allow.all.tools=true
+    allow.all.paths=false
+    denied.tools=shell,bash
+    
+    # Execution options
+    copilot.model=claude-sonnet-4.5
+    timeout.minutes=30
+    no.ask.user=false
 
 "@
 }
@@ -180,6 +273,356 @@ function Load-FileContent {
     }
     
     return $content
+}
+
+# Function to get the prompt cache directory
+function Get-PromptCacheDir {
+    if (-not [string]::IsNullOrEmpty($script:PromptCacheDir)) {
+        return $script:PromptCacheDir
+    }
+    
+    # Default to ~/.copilot-cli-automation/prompts/
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $env:HOME }
+    return Join-Path $homeDir ".copilot-cli-automation" "prompts"
+}
+
+# Function to parse prompt reference (owner/repo:name or just name)
+function Parse-PromptReference {
+    param([string]$Reference)
+    
+    $result = @{
+        Owner = ""
+        Repo = ""
+        Path = "prompts"
+        Name = ""
+        FullRepo = ""
+    }
+    
+    if ($Reference -match '^([^/:]+)/([^/:]+):(.+)$') {
+        # Format: owner/repo:name or owner/repo:path/name
+        $result.Owner = $matches[1]
+        $result.Repo = $matches[2]
+        $result.FullRepo = "$($matches[1])/$($matches[2])"
+        $pathAndName = $matches[3]
+        
+        # Check if there's a nested path
+        if ($pathAndName -match '^(.+)/([^/]+)$') {
+            $result.Path = $matches[1]
+            $result.Name = $matches[2]
+        } else {
+            $result.Path = "prompts"
+            $result.Name = $pathAndName
+        }
+    } else {
+        # Format: just name - use default repo
+        $defaultParts = $script:DefaultPromptRepo -split '/'
+        $result.Owner = $defaultParts[0]
+        $result.Repo = $defaultParts[1]
+        $result.FullRepo = $script:DefaultPromptRepo
+        $result.Path = "prompts"
+        $result.Name = $Reference
+    }
+    
+    return $result
+}
+
+# Function to get cached prompt path
+function Get-CachedPromptPath {
+    param([hashtable]$ParsedRef)
+    
+    $cacheDir = Get-PromptCacheDir
+    $repoDir = Join-Path $cacheDir $ParsedRef.Owner $ParsedRef.Repo
+    
+    # Ensure .prompt.md extension
+    $fileName = $ParsedRef.Name
+    if (-not $fileName.EndsWith(".prompt.md")) {
+        $fileName = "$fileName.prompt.md"
+    }
+    
+    return Join-Path $repoDir $fileName
+}
+
+# Function to fetch prompt from GitHub repository
+function Get-RemotePrompt {
+    param(
+        [string]$PromptReference,
+        [switch]$ForceRefresh
+    )
+    
+    $parsed = Parse-PromptReference -Reference $PromptReference
+    $cachedPath = Get-CachedPromptPath -ParsedRef $parsed
+    
+    # Check cache first (unless force refresh)
+    if (-not $ForceRefresh -and (Test-Path $cachedPath)) {
+        Write-Log "Using cached prompt: $cachedPath"
+        return Get-Content -Path $cachedPath -Raw
+    }
+    
+    # Ensure .prompt.md extension for URL
+    $fileName = $parsed.Name
+    if (-not $fileName.EndsWith(".prompt.md")) {
+        $fileName = "$fileName.prompt.md"
+    }
+    
+    # Construct GitHub raw URL
+    $url = "https://raw.githubusercontent.com/$($parsed.FullRepo)/main/$($parsed.Path)/$fileName"
+    
+    Write-Host "Fetching prompt from: $url" -ForegroundColor Cyan
+    Write-Log "Fetching prompt from URL: $url"
+    
+    try {
+        $response = Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop
+        $content = $response.Content
+        
+        # Cache the prompt
+        $cacheDir = Split-Path $cachedPath -Parent
+        if (-not (Test-Path $cacheDir)) {
+            New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        }
+        $content | Set-Content -Path $cachedPath -Encoding UTF8 -NoNewline
+        Write-Log "Cached prompt to: $cachedPath"
+        
+        return $content
+    } catch {
+        if (Test-Path $cachedPath) {
+            Write-Host "Warning: Could not fetch remote prompt, using cached version" -ForegroundColor Yellow
+            return Get-Content -Path $cachedPath -Raw
+        }
+        throw "Failed to fetch prompt '$PromptReference' from $url. Error: $($_.Exception.Message)"
+    }
+}
+
+# Function to parse prompt file frontmatter (YAML-like)
+function Parse-PromptFrontmatter {
+    param([string]$Content)
+    
+    $result = @{
+        Description = ""
+        Tools = @()
+        Agent = ""
+        Body = $Content
+    }
+    
+    # Check for YAML frontmatter (--- at start and end)
+    if ($Content -match '^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$') {
+        $frontmatter = $matches[1]
+        $result.Body = $matches[2].Trim()
+        
+        # Parse frontmatter fields
+        if ($frontmatter -match "description:\s*['""]?([^'""]+)['""]?") {
+            $result.Description = $matches[1].Trim()
+        }
+        if ($frontmatter -match "agent:\s*['""]?([^'""]+)['""]?") {
+            $result.Agent = $matches[1].Trim()
+        }
+        if ($frontmatter -match "tools:\s*\[([^\]]+)\]") {
+            $toolsStr = $matches[1]
+            $result.Tools = $toolsStr -split ',' | ForEach-Object { $_.Trim().Trim("'").Trim('"') }
+        }
+    }
+    
+    return $result
+}
+
+# Function to list prompts from a repository
+function Get-PromptList {
+    param(
+        [string]$RepoReference = ""
+    )
+    
+    # Parse repo reference or use default
+    $repo = if ([string]::IsNullOrEmpty($RepoReference)) { $script:DefaultPromptRepo } else { $RepoReference }
+    
+    # Use GitHub API to list prompts directory
+    $apiUrl = "https://api.github.com/repos/$repo/contents/prompts"
+    
+    Write-Host "Fetching prompt list from: $repo" -ForegroundColor Cyan
+    
+    try {
+        $headers = @{}
+        if (-not [string]::IsNullOrEmpty($env:GH_TOKEN)) {
+            $headers["Authorization"] = "token $($env:GH_TOKEN)"
+        }
+        
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+        
+        $prompts = $response | Where-Object { $_.name -match '\.prompt\.md$' } | ForEach-Object {
+            $name = $_.name -replace '\.prompt\.md$', ''
+            @{
+                Name = $name
+                FullName = $_.name
+                Repo = $repo
+                Url = $_.download_url
+            }
+        }
+        
+        return $prompts
+    } catch {
+        throw "Failed to list prompts from $repo. Error: $($_.Exception.Message)"
+    }
+}
+
+# Function to search prompts by keyword
+function Search-Prompts {
+    param(
+        [string]$Query
+    )
+    
+    # Parse query for repo:keyword format
+    $repo = $script:DefaultPromptRepo
+    $keyword = $Query
+    
+    if ($Query -match '^([^/:]+/[^/:]+):(.+)$') {
+        $repo = $matches[1]
+        $keyword = $matches[2]
+    }
+    
+    Write-Host "Searching for '$keyword' in $repo..." -ForegroundColor Cyan
+    
+    $allPrompts = Get-PromptList -RepoReference $repo
+    
+    # Filter by keyword (case-insensitive)
+    $matches = $allPrompts | Where-Object { $_.Name -match $keyword }
+    
+    return $matches
+}
+
+# Function to show prompt information
+function Show-PromptInfo {
+    param([string]$PromptReference)
+    
+    $content = Get-RemotePrompt -PromptReference $PromptReference
+    $parsed = Parse-PromptFrontmatter -Content $content
+    $ref = Parse-PromptReference -Reference $PromptReference
+    
+    Write-Host ""
+    Write-Host "Prompt: $($ref.Name)" -ForegroundColor Green
+    Write-Host "Repository: $($ref.FullRepo)" -ForegroundColor Gray
+    Write-Host ""
+    
+    if (-not [string]::IsNullOrEmpty($parsed.Description)) {
+        Write-Host "Description:" -ForegroundColor Yellow
+        Write-Host "  $($parsed.Description)"
+        Write-Host ""
+    }
+    
+    if (-not [string]::IsNullOrEmpty($parsed.Agent)) {
+        Write-Host "Agent: $($parsed.Agent)" -ForegroundColor Yellow
+    }
+    
+    if ($parsed.Tools.Count -gt 0) {
+        Write-Host "Required Tools:" -ForegroundColor Yellow
+        foreach ($tool in $parsed.Tools) {
+            Write-Host "  - $tool"
+        }
+        Write-Host ""
+    }
+    
+    Write-Host "Preview (first 500 chars):" -ForegroundColor Yellow
+    $preview = if ($parsed.Body.Length -gt 500) { $parsed.Body.Substring(0, 500) + "..." } else { $parsed.Body }
+    Write-Host $preview -ForegroundColor Gray
+}
+
+# Function to display prompt list
+function Show-PromptList {
+    param([array]$Prompts)
+    
+    if ($Prompts.Count -eq 0) {
+        Write-Host "No prompts found." -ForegroundColor Yellow
+        return
+    }
+    
+    Write-Host ""
+    Write-Host "Available Prompts ($($Prompts.Count) found):" -ForegroundColor Green
+    Write-Host ""
+    
+    foreach ($prompt in $Prompts | Sort-Object { $_.Name }) {
+        Write-Host "  $($prompt.Name)" -ForegroundColor White
+    }
+    
+    Write-Host ""
+    Write-Host "Usage: -UsePrompt <name> or -UsePrompt owner/repo:name" -ForegroundColor Gray
+    Write-Host "Info:  -PromptInfo <name> for details" -ForegroundColor Gray
+}
+
+# Function to initialize a new project with copilot-cli configuration
+function Initialize-CopilotCliProject {
+    $configPath = Join-Path (Get-Location) "copilot-cli.properties"
+    $userPromptPath = Join-Path (Get-Location) "user.prompt.md"
+    $systemPromptPath = Join-Path (Get-Location) "system.prompt.md"
+    
+    if (Test-Path $configPath) {
+        Write-Host "Configuration file already exists: $configPath" -ForegroundColor Yellow
+        return
+    }
+    
+    $configContent = @"
+# Copilot CLI Wrapper Configuration
+# Generated by copilot-cli.ps1 -Init
+
+# Prompt Configuration
+# Use one of: prompt, prompt.file, or use.prompt
+# prompt=Your prompt text here
+prompt.file=user.prompt.md
+system.prompt.file=system.prompt.md
+
+# Or use a pre-built prompt from awesome-copilot (or custom repo)
+# use.prompt=code-review
+# default.prompt.repo=github/awesome-copilot
+
+# Model Selection
+copilot.model=claude-sonnet-4.5
+
+# Tool Permissions
+allow.all.tools=true
+allow.all.paths=false
+
+# Timeout (minutes)
+timeout.minutes=30
+
+# Log Level (none, error, warning, info, debug, all)
+log.level=info
+"@
+
+    $userPromptContent = @"
+# User Prompt
+
+<!-- 
+This file contains the main prompt/task for Copilot CLI.
+Edit this file to specify what you want Copilot to do.
+-->
+
+Analyze this codebase and provide a summary of:
+1. The project structure and architecture
+2. Key technologies and frameworks used
+3. Potential areas for improvement
+"@
+
+    $systemPromptContent = @"
+# System Prompt
+
+<!-- 
+This file contains guidelines and constraints for Copilot.
+These instructions will be emphasized when executing your prompt.
+-->
+
+You are a helpful AI assistant focused on code quality and best practices.
+Please follow these guidelines:
+- Be thorough but concise in your analysis
+- Provide actionable recommendations
+- Consider security, performance, and maintainability
+"@
+    
+    $configContent | Set-Content -Path $configPath -Encoding UTF8
+    $userPromptContent | Set-Content -Path $userPromptPath -Encoding UTF8  
+    $systemPromptContent | Set-Content -Path $systemPromptPath -Encoding UTF8
+    
+    Write-Host "Initialized Copilot CLI configuration:" -ForegroundColor Green
+    Write-Host "  - $configPath" -ForegroundColor White
+    Write-Host "  - $userPromptPath" -ForegroundColor White
+    Write-Host "  - $systemPromptPath" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Edit these files and run: .\copilot-cli.ps1" -ForegroundColor Cyan
 }
 
 # Function to load configuration from properties file
@@ -276,6 +719,55 @@ function Load-Config {
         }
         if ($config.ContainsKey("timeout.minutes") -and $script:TimeoutMinutes -eq 30) {
             $script:TimeoutMinutes = [int]$config["timeout.minutes"]
+        }
+        
+        # New: Prompt repository options
+        if ($config.ContainsKey("use.prompt") -and [string]::IsNullOrEmpty($script:UsePrompt)) {
+            $script:UsePrompt = $config["use.prompt"]
+        }
+        if ($config.ContainsKey("default.prompt.repo") -and $script:DefaultPromptRepo -eq "github/awesome-copilot") {
+            $script:DefaultPromptRepo = $config["default.prompt.repo"]
+        }
+        if ($config.ContainsKey("prompt.cache.dir") -and [string]::IsNullOrEmpty($script:PromptCacheDir)) {
+            $script:PromptCacheDir = $config["prompt.cache.dir"]
+        }
+        
+        # New: CLI parity options
+        if ($config.ContainsKey("agent") -and [string]::IsNullOrEmpty($script:Agent)) {
+            $script:Agent = $config["agent"]
+        }
+        if ($config.ContainsKey("allow.all.urls") -and $script:AllowAllUrls -eq "false") {
+            $script:AllowAllUrls = Parse-Bool $config["allow.all.urls"]
+        }
+        if ($config.ContainsKey("allow.urls") -and [string]::IsNullOrEmpty($script:AllowUrls)) {
+            $script:AllowUrls = $config["allow.urls"]
+        }
+        if ($config.ContainsKey("deny.urls") -and [string]::IsNullOrEmpty($script:DenyUrls)) {
+            $script:DenyUrls = $config["deny.urls"]
+        }
+        if ($config.ContainsKey("available.tools") -and [string]::IsNullOrEmpty($script:AvailableTools)) {
+            $script:AvailableTools = $config["available.tools"]
+        }
+        if ($config.ContainsKey("excluded.tools") -and [string]::IsNullOrEmpty($script:ExcludedTools)) {
+            $script:ExcludedTools = $config["excluded.tools"]
+        }
+        if ($config.ContainsKey("add.github.mcp.tool") -and [string]::IsNullOrEmpty($script:AddGitHubMcpTool)) {
+            $script:AddGitHubMcpTool = $config["add.github.mcp.tool"]
+        }
+        if ($config.ContainsKey("add.github.mcp.toolset") -and [string]::IsNullOrEmpty($script:AddGitHubMcpToolset)) {
+            $script:AddGitHubMcpToolset = $config["add.github.mcp.toolset"]
+        }
+        if ($config.ContainsKey("no.ask.user") -and $script:NoAskUser -eq "false") {
+            $script:NoAskUser = Parse-Bool $config["no.ask.user"]
+        }
+        if ($config.ContainsKey("config.dir") -and [string]::IsNullOrEmpty($script:ConfigDir)) {
+            $script:ConfigDir = $config["config.dir"]
+        }
+        if ($config.ContainsKey("share") -and [string]::IsNullOrEmpty($script:Share)) {
+            $script:Share = $config["share"]
+        }
+        if ($config.ContainsKey("resume") -and [string]::IsNullOrEmpty($script:Resume)) {
+            $script:Resume = $config["resume"]
         }
     } else {
         Write-Log "Configuration file $ConfigFile not found, using defaults"
@@ -389,13 +881,41 @@ function Build-CopilotCommand {
         $cmd += " --model $Model"
     }
     
+    # Add agent if specified
+    if (-not [string]::IsNullOrEmpty($Agent)) {
+        $cmd += " --agent `"$Agent`""
+    }
+    
     # Add tool permissions
     if ($AllowAllTools -eq "true") {
         $cmd += " --allow-all-tools"
     }
     
-    # Always add --allow-all-paths flag
-    $cmd += " --allow-all-paths"
+    # Add --allow-all-paths flag only if explicitly enabled (FIXED: was always adding this)
+    if ($AllowAllPaths -eq "true") {
+        $cmd += " --allow-all-paths"
+    }
+    
+    # Add URL permissions
+    if ($AllowAllUrls -eq "true") {
+        $cmd += " --allow-all-urls"
+    }
+    
+    # Add allowed URLs
+    if (-not [string]::IsNullOrEmpty($AllowUrls)) {
+        $urls = $AllowUrls -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($url in $urls) {
+            $cmd += " --allow-url `"$url`""
+        }
+    }
+    
+    # Add denied URLs
+    if (-not [string]::IsNullOrEmpty($DenyUrls)) {
+        $urls = $DenyUrls -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($url in $urls) {
+            $cmd += " --deny-url `"$url`""
+        }
+    }
     
     # Add allowed tools
     if (-not [string]::IsNullOrEmpty($AllowedTools)) {
@@ -410,6 +930,22 @@ function Build-CopilotCommand {
         $tools = $DeniedTools -split ',' | ForEach-Object { $_.Trim() }
         foreach ($tool in $tools) {
             $cmd += " --deny-tool `"$tool`""
+        }
+    }
+    
+    # Add available tools (limit which tools are available)
+    if (-not [string]::IsNullOrEmpty($AvailableTools)) {
+        $tools = $AvailableTools -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($tool in $tools) {
+            $cmd += " --available-tools `"$tool`""
+        }
+    }
+    
+    # Add excluded tools
+    if (-not [string]::IsNullOrEmpty($ExcludedTools)) {
+        $tools = $ExcludedTools -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($tool in $tools) {
+            $cmd += " --excluded-tools `"$tool`""
         }
     }
     
@@ -447,12 +983,58 @@ function Build-CopilotCommand {
         $cmd += " --enable-all-github-mcp-tools"
     }
     
+    # Add GitHub MCP tools
+    if (-not [string]::IsNullOrEmpty($AddGitHubMcpTool)) {
+        $tools = $AddGitHubMcpTool -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($tool in $tools) {
+            $cmd += " --add-github-mcp-tool `"$tool`""
+        }
+    }
+    
+    # Add GitHub MCP toolsets
+    if (-not [string]::IsNullOrEmpty($AddGitHubMcpToolset)) {
+        $toolsets = $AddGitHubMcpToolset -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($toolset in $toolsets) {
+            $cmd += " --add-github-mcp-toolset `"$toolset`""
+        }
+    }
+    
     # Add disabled MCP servers
     if (-not [string]::IsNullOrEmpty($DisableMcpServers)) {
         $servers = $DisableMcpServers -split ',' | ForEach-Object { $_.Trim() }
         foreach ($server in $servers) {
             $cmd += " --disable-mcp-server `"$server`""
         }
+    }
+    
+    # Add autonomous mode (no ask user)
+    if ($NoAskUser -eq "true") {
+        $cmd += " --no-ask-user"
+    }
+    
+    # Add config directory
+    if (-not [string]::IsNullOrEmpty($ConfigDir)) {
+        $cmd += " --config-dir `"$ConfigDir`""
+    }
+    
+    # Add session resume options
+    if ($Continue) {
+        $cmd += " --continue"
+    } elseif (-not [string]::IsNullOrEmpty($Resume)) {
+        $cmd += " --resume `"$Resume`""
+    }
+    
+    # Add share options
+    if (-not [string]::IsNullOrEmpty($Share)) {
+        $cmd += " --share `"$Share`""
+    }
+    if ($ShareGist) {
+        $cmd += " --share-gist"
+    }
+    
+    # Add silent mode
+    if ($Silent) {
+        $cmd += " --silent"
     }
     
     # Add log level
@@ -485,8 +1067,76 @@ try {
         exit 0
     }
     
+    # Handle -Init command
+    if ($Init) {
+        Initialize-CopilotCliProject
+        exit 0
+    }
+    
     # Load configuration file
     Load-Config -ConfigFile $Config
+    
+    # Setup GitHub authentication early (needed for API calls)
+    Set-GitHubAuth
+    
+    # Handle -ListPrompts command
+    if ($ListPrompts) {
+        $prompts = Get-PromptList -RepoReference $DefaultPromptRepo
+        Show-PromptList -Prompts $prompts
+        exit 0
+    }
+    
+    # Handle -SearchPrompts command
+    if (-not [string]::IsNullOrEmpty($SearchPrompts)) {
+        $results = Search-Prompts -Query $SearchPrompts
+        Show-PromptList -Prompts $results
+        exit 0
+    }
+    
+    # Handle -PromptInfo command
+    if (-not [string]::IsNullOrEmpty($PromptInfo)) {
+        Show-PromptInfo -PromptReference $PromptInfo
+        exit 0
+    }
+    
+    # Handle -UpdatePromptCache command
+    if ($UpdatePromptCache) {
+        Write-Host "Updating prompt cache..." -ForegroundColor Cyan
+        $prompts = Get-PromptList -RepoReference $DefaultPromptRepo
+        foreach ($prompt in $prompts) {
+            try {
+                $null = Get-RemotePrompt -PromptReference $prompt.Name -ForceRefresh
+                Write-Host "  Cached: $($prompt.Name)" -ForegroundColor Green
+            } catch {
+                Write-Host "  Failed: $($prompt.Name) - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        Write-Host "Cache update complete." -ForegroundColor Green
+        exit 0
+    }
+    
+    # Handle -UsePrompt: fetch prompt from remote repository
+    if (-not [string]::IsNullOrEmpty($UsePrompt)) {
+        Write-Log "Fetching prompt: $UsePrompt"
+        $promptContent = Get-RemotePrompt -PromptReference $UsePrompt
+        $parsedPrompt = Parse-PromptFrontmatter -Content $promptContent
+        
+        # Use the prompt body as the main prompt
+        if ([string]::IsNullOrEmpty($Prompt)) {
+            $Prompt = $parsedPrompt.Body
+        }
+        
+        # If the prompt specifies an agent and we don't have one, use it
+        if ([string]::IsNullOrEmpty($Agent) -and -not [string]::IsNullOrEmpty($parsedPrompt.Agent)) {
+            $Agent = $parsedPrompt.Agent
+            Write-Log "Using agent from prompt: $Agent"
+        }
+        
+        # If the prompt specifies tools and we have none configured, suggest them
+        if ($parsedPrompt.Tools.Count -gt 0 -and [string]::IsNullOrEmpty($AllowedTools)) {
+            Write-Log "Prompt recommends tools: $($parsedPrompt.Tools -join ', ')"
+        }
+    }
     
     # Load prompts from files if specified (command line params override)
     # Load prompt from file if PromptFile is specified and Prompt is empty
@@ -503,7 +1153,21 @@ try {
     
     # Validate required parameters
     if ([string]::IsNullOrEmpty($Prompt)) {
-        throw "Prompt is required. Use -Prompt parameter, -PromptFile parameter, or set prompt/prompt.file in config file."
+        Write-Host ""
+        Write-Host "GitHub Copilot CLI Wrapper - No prompt specified" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Quick Start:" -ForegroundColor Cyan
+        Write-Host "  .\copilot-cli.ps1 -Prompt `"Your task here`""
+        Write-Host "  .\copilot-cli.ps1 -UsePrompt code-review"
+        Write-Host "  .\copilot-cli.ps1 -Init                     # Create starter config"
+        Write-Host ""
+        Write-Host "Discover Prompts:" -ForegroundColor Cyan
+        Write-Host "  .\copilot-cli.ps1 -ListPrompts              # List available prompts"
+        Write-Host "  .\copilot-cli.ps1 -SearchPrompts security   # Search prompts"
+        Write-Host "  .\copilot-cli.ps1 -PromptInfo code-review   # Show prompt details"
+        Write-Host ""
+        Write-Host "Use -Help for full documentation" -ForegroundColor Gray
+        exit 1
     }
     
     # Print current working directory
@@ -514,9 +1178,6 @@ try {
     
     # Check dependencies
     Test-Dependencies
-    
-    # Setup GitHub authentication
-    Set-GitHubAuth
     
     # Validate MCP configuration if provided
     if (-not [string]::IsNullOrEmpty($McpConfig)) {
