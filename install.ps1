@@ -862,12 +862,13 @@ function Set-ExecutablePermissions {
 
 function Show-PostInstallInstructions {
     Write-Host ""
-    Write-Host "🎉 " -ForegroundColor Green -NoNewline
-    Write-Host "GitHub Copilot CLI Automation Suite installed successfully!" -ForegroundColor White
+    Write-Host "========================================" -ForegroundColor Green
+    Write-Host "SUCCESS: GitHub Copilot CLI Automation Suite installed successfully!" -ForegroundColor Green
+    Write-Host "========================================" -ForegroundColor Green
     Write-Host ""
     
-    Write-Host "📁 Installation Location: " -ForegroundColor Yellow -NoNewline
-    Write-Host $InstallPath -ForegroundColor White
+    Write-Host "Installation Location:" -ForegroundColor Yellow
+    Write-Host "  $InstallPath" -ForegroundColor White
     Write-Host ""
     
     # Check current state of prerequisites
@@ -877,7 +878,7 @@ function Show-PostInstallInstructions {
     
     # Show status of already-configured items
     $allConfigured = $true
-    Write-Host "✅ Prerequisites Status:" -ForegroundColor Cyan
+    Write-Host "[Prerequisites Status]" -ForegroundColor Cyan
     
     if ($hasGitHubAuth) {
         Write-Host "  ✓ GitHub Authentication: " -ForegroundColor Green -NoNewline
@@ -918,7 +919,7 @@ function Show-PostInstallInstructions {
     # Only show steps that are needed
     if (-not $hasGitHubAuth) {
         if (-not $hasSteps) {
-            Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
+            Write-Host "[Next Steps]" -ForegroundColor Cyan
             $hasSteps = $true
         }
         Write-Host "  $stepNumber. Configure GitHub Authentication:" -ForegroundColor White
@@ -932,7 +933,7 @@ function Show-PostInstallInstructions {
     
     if (-not $nodeStatus.IsInstalled) {
         if (-not $hasSteps) {
-            Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
+            Write-Host "[Next Steps]" -ForegroundColor Cyan
             $hasSteps = $true
         }
         Write-Host "  $stepNumber. Install Node.js 20+:" -ForegroundColor White
@@ -944,7 +945,7 @@ function Show-PostInstallInstructions {
     
     if (-not $hasCopilotCli) {
         if (-not $hasSteps) {
-            Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
+            Write-Host "[Next Steps]" -ForegroundColor Cyan
             $hasSteps = $true
         }
         Write-Host "  $stepNumber. Install GitHub Copilot CLI:" -ForegroundColor White
@@ -956,7 +957,7 @@ function Show-PostInstallInstructions {
     
     # Always show configuration and test steps
     if (-not $hasSteps) {
-        Write-Host "🚀 Next Steps:" -ForegroundColor Cyan
+        Write-Host "[Next Steps]" -ForegroundColor Cyan
         $hasSteps = $true
     }
     
@@ -982,7 +983,7 @@ function Show-PostInstallInstructions {
     }
     Write-Host ""
     
-    Write-Host "📚 Documentation:" -ForegroundColor Cyan
+    Write-Host "[Documentation]" -ForegroundColor Cyan
     Write-Host "  • Main README: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'README.md')" -ForegroundColor Yellow
     Write-Host "  • Automation Guide: " -ForegroundColor Gray -NoNewline
@@ -994,7 +995,8 @@ function Show-PostInstallInstructions {
 
 function Main {
     Write-Host ""
-    Write-Host "🤖 GitHub Copilot CLI Automation Accelerator Installer" -ForegroundColor Magenta
+    Write-Host "========================================================" -ForegroundColor Magenta
+    Write-Host "  GitHub Copilot CLI Automation Accelerator Installer  " -ForegroundColor Magenta
     Write-Host "========================================================" -ForegroundColor Magenta
     Write-Host ""
     

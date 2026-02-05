@@ -2,7 +2,7 @@
 
 A comprehensive collection of tools for automating GitHub Copilot CLI usage in CI/CD pipelines and local development environments.
 
-## � 30-Second Quick Start
+## 🚀 30-Second Quick Start
 
 **Run a code review right now (zero config):**
 
