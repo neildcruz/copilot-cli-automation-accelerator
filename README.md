@@ -2,127 +2,193 @@
 
 A comprehensive collection of tools for automating GitHub Copilot CLI usage in CI/CD pipelines and local development environments.
 
-## 📁 Project Structure
+## � 30-Second Quick Start
 
-```
-output/
-├── README.md                 # This file - project overview
-├── INDEX.md                  # Detailed navigation guide
-├── actions/                  # GitHub Actions integration
-│   ├── README.md            # GitHub Actions documentation
-│   ├── QUICK_START.md       # Quick start guide for GitHub Actions
-│   ├── copilot-cli-action.yml      # Reusable GitHub Action workflow
-│   └── example-copilot-usage.yml   # Example workflows
-└── automation/              # Local automation scripts
-    ├── README.md           # Automation scripts documentation
-    ├── copilot-cli.sh      # Bash script for Linux/macOS
-    ├── copilot-cli.ps1     # PowerShell script for Windows/cross-platform
-    ├── copilot-cli.properties      # Sample configuration file
-    ├── user.prompt.md      # Default user prompt file
-    ├── system.prompt.md    # Default system prompt file
-    └── examples/
-        ├── README.md       # Agent examples documentation
-        ├── mcp-config.json # Sample MCP server configuration
-        ├── code-review/    # Code review agent with prompt files
-        ├── security-analysis/  # Security analysis agent with prompt files
-        ├── test-generation/    # Test generation agent with prompt files
-        ├── documentation-generation/  # Documentation agent with prompt files
-        ├── refactoring/    # Code refactoring agent with prompt files
-        └── cicd-analysis/  # CI/CD analysis agent with prompt files
-```
+**Run a code review right now (zero config):**
 
-## 🚀 Quick Start
-
-### 📦 One-Line Installation
-
-**PowerShell (Windows/Cross-platform):**
-```powershell
-iwr https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.ps1 | iex
-```
-
-**Bash (Linux/macOS):**
 ```bash
+# Install (one-time)
+curl -fsSL https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.sh | bash
+cd copilot-cli-automation-accelerator/automation
+
+# Run a pre-built agent
+./copilot-cli.sh --agent code-review
+```
+
+```powershell
+# PowerShell (Windows)
+iwr https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.ps1 | iex
+cd copilot-cli-automation-accelerator\automation
+
+# Run a pre-built agent
+.\copilot-cli.ps1 -Agent code-review
+```
+
+**See available agents:**
+```bash
+./copilot-cli.sh --list-agents
+```
+
+---
+
+## 📋 What Can I Do?
+
+| Goal | Command |
+|------|---------|
+| **Code Review** | `./copilot-cli.sh --agent code-review` |
+| **Security Scan** | `./copilot-cli.sh --agent security-analysis` |
+| **Generate Tests** | `./copilot-cli.sh --agent test-generation` |
+| **Generate Docs** | `./copilot-cli.sh --agent documentation` |
+| **Refactor Code** | `./copilot-cli.sh --agent refactoring` |
+| **CI/CD Analysis** | `./copilot-cli.sh --agent cicd-analysis` |
+| **Custom Prompt** | `./copilot-cli.sh --prompt "Your task here"` |
+| **Initialize Config** | `./copilot-cli.sh --init` |
+
+---
+
+## 📦 Installation
+
+**One-liner install:**
+
+```bash
+# Bash (Linux/macOS)
 curl -fsSL https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.sh | bash
 ```
 
-> 📋 **See [INSTALL.md](INSTALL.md) for complete installation options and troubleshooting**
-
-### For GitHub Actions (CI/CD)
-If you want to integrate Copilot CLI into your GitHub workflows:
-
-```bash
-cd actions/
-# Copy copilot-cli-action.yml to your .github/workflows/ directory
-# See README.md for full setup instructions
+```powershell
+# PowerShell (Windows/Cross-platform)
+iwr https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.ps1 | iex
 ```
 
-### For Local Development
-If you want to run Copilot CLI locally with configuration management:
+> See [INSTALL.md](INSTALL.md) for advanced installation options, custom paths, and troubleshooting.
+
+**Prerequisites:** Node.js 20+, GitHub authentication (`gh auth login` or `GITHUB_TOKEN` env var)
+
+---
+
+<details>
+<summary><strong>📁 Project Structure</strong> (click to expand)</summary>
+
+```
+copilot-cli-automation-accelerator/
+├── README.md                 # This file - start here
+├── INDEX.md                  # Reference navigation guide
+├── INSTALL.md                # Installation details
+├── actions/                  # GitHub Actions integration
+│   ├── copilot-cli-action.yml      # Reusable workflow
+│   └── ...
+└── automation/              # Local automation scripts
+    ├── copilot-cli.sh      # Bash script (Linux/macOS)
+    ├── copilot-cli.ps1     # PowerShell script (Windows/cross-platform)
+    ├── copilot-cli.properties      # Configuration file
+    └── examples/           # Pre-built agents
+        ├── code-review/
+        ├── security-analysis/
+        ├── test-generation/
+        ├── documentation-generation/
+        ├── refactoring/
+        └── cicd-analysis/
+```
+
+</details>
+
+<details>
+<summary><strong>🔧 For GitHub Actions (CI/CD)</strong> (click to expand)</summary>
+
+Copy the reusable workflow to your repository:
+
+```bash
+cp actions/copilot-cli-action.yml /path/to/your/repo/.github/workflows/
+```
+
+Create a workflow that uses it:
+
+```yaml
+# .github/workflows/ai-review.yml
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize]
+
+jobs:
+  review:
+    uses: ./.github/workflows/copilot-cli-action.yml
+    with:
+      prompt: "Review this PR for code quality and potential issues"
+      allow_all_tools: true
+    secrets:
+      GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+See [actions/README.md](actions/README.md) for full documentation.
+
+</details>
+
+<details>
+<summary><strong>💻 For Local Development</strong> (click to expand)</summary>
 
 ```bash
 cd automation/
-# For Linux/macOS
+
+# Use a pre-built agent
+./copilot-cli.sh --agent code-review
+
+# Use a custom prompt
 ./copilot-cli.sh --prompt "Review the code for issues"
 
-# For Windows/PowerShell
-.\copilot-cli.ps1 -Prompt "Review the code for issues"
-# See README.md for full configuration options
+# Initialize your own configuration
+./copilot-cli.sh --init
+
+# See all options
+./copilot-cli.sh --help
 ```
+
+See [automation/README.md](automation/README.md) for full documentation.
+
+</details>
 
 ## 🎯 Use Cases
 
-### GitHub Actions Integration
+<details>
+<summary><strong>GitHub Actions Integration</strong></summary>
+
 - **Automated Code Reviews**: Integrate AI-powered code analysis into pull request workflows
 - **Security Scanning**: Automated vulnerability detection with custom prompts
 - **Documentation Generation**: Auto-generate and update project documentation
 - **Test Generation**: Create comprehensive test suites based on code analysis
 - **MCP Server Integration**: Connect to custom Model Context Protocol servers for specialized tools
 
-### Local Automation
+</details>
+
+<details>
+<summary><strong>Local Automation</strong></summary>
+
 - **Development Workflow**: Streamline code review and analysis during development
 - **Batch Processing**: Analyze multiple files or projects with consistent configuration
 - **Custom Tool Integration**: Use MCP servers to extend Copilot CLI capabilities
 - **Cross-Platform Support**: Same functionality across Linux, macOS, and Windows
 
+</details>
+
 ## 🔧 Key Features
 
-### ✅ **Complete Automation**
-- Auto-installation of GitHub Copilot CLI (configurable)
-- Automatic dependency management
-- Environment validation and setup
-
-### ✅ **Flexible Configuration**
-- Properties file configuration with command-line overrides
-- System prompts for guided AI behavior
-- Comprehensive tool permission management
-- Environment variable expansion support
-
-### ✅ **MCP Server Support**
-- Local Python/Node.js MCP servers
-- HTTP REST API integration
-- Server-sent events (SSE) support
-- Built-in and custom MCP server management
-
-### ✅ **Enterprise Ready**
-- Security-focused design with tool restrictions
-- Comprehensive logging and error handling
-- Timeout management and resource control
-- GitHub token and authentication support
+- **Complete Automation** - Auto-installation of GitHub Copilot CLI, dependency management, environment setup
+- **Flexible Configuration** - Properties files with command-line overrides, system prompts, tool permissions
+- **MCP Server Support** - Local Python/Node.js servers, HTTP REST, Server-sent events
+- **Enterprise Ready** - Security-focused design, logging, timeout management, authentication
 
 ## 📖 Documentation
 
-### GitHub Actions
-- **[actions/README.md](actions/README.md)** - Complete GitHub Action setup and configuration
-- **[actions/QUICK_START.md](actions/QUICK_START.md)** - Quick start guide with common examples
+| Component | Documentation |
+|-----------|---------------|
+| GitHub Actions | [actions/README.md](actions/README.md) |
+| Local Scripts | [automation/README.md](automation/README.md) |
+| Pre-built Agents | [automation/examples/](automation/examples/) |
+| Navigation Guide | [INDEX.md](INDEX.md) |
 
-### Local Automation
-- **[automation/README.md](automation/README.md)** - Complete script setup and configuration
-- **[automation/examples/](automation/examples/)** - Configuration examples and templates
-
-### General
-- **[INDEX.md](INDEX.md)** - Detailed navigation guide and component overview
-
-## 🛡️ Security Considerations
+<details>
+<summary><strong>🛡️ Security Considerations</strong></summary>
 
 - **Tool Permissions**: Granular control over which tools Copilot CLI can execute
 - **Path Restrictions**: Limit filesystem access to specific directories
@@ -130,26 +196,10 @@ cd automation/
 - **Authentication**: GitHub token management and validation
 - **Validation**: Input validation and error handling throughout
 
-## 🌟 Getting Started
+</details>
 
-1. **Choose your integration method**:
-   - Use **actions/** for GitHub workflow integration
-   - Use **automation/** for local development automation
-
-2. **Review the documentation**:
-   - Start with the Quick Start guide in your chosen folder
-   - Review the comprehensive README for advanced configuration
-
-3. **Try the examples**:
-   - GitHub Actions: Check `example-copilot-usage.yml`
-   - Local Scripts: Use the sample `copilot-cli.properties`
-
-4. **Customize for your needs**:
-   - Configure MCP servers for specialized tools
-   - Set up system prompts for consistent AI guidance
-   - Adjust security settings and tool permissions
-
-## 🤝 Contributing
+<details>
+<summary><strong>🤝 Contributing</strong></summary>
 
 This automation suite is designed to be modular and extensible. Each component follows established patterns:
 
@@ -158,19 +208,8 @@ This automation suite is designed to be modular and extensible. Each component f
 - **Documentation**: Clear examples and usage patterns
 - **Security**: Principle of least privilege with configurable restrictions
 
-## 📋 Requirements
-
-### GitHub Actions
-- GitHub repository with Actions enabled
-- GitHub Copilot subscription
-- Node.js 20+ (provided by GitHub runners)
-
-### Local Automation
-- **Node.js 20+** - Required for Copilot CLI
-- **GitHub Copilot CLI** - Auto-installed by default
-- **GitHub Authentication** - GitHub Personal Access Token, `gh auth login`, or environment variables
-- **Platform**: Linux, macOS, or Windows with PowerShell
+</details>
 
 ---
 
-**Need help?** Check the detailed documentation in each folder or review the examples provided.
+**Need help?** Run `./copilot-cli.sh --help` or check the [automation/README.md](automation/README.md) for detailed options.

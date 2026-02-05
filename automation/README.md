@@ -1,6 +1,8 @@
 # GitHub Copilot CLI Local Scripts
 
-This folder contains shell and PowerShell scripts that provide the same functionality as the GitHub Action but for local execution. These scripts support configuration via properties files and command line arguments.
+> **New here?** Start with [../README.md](../README.md) for a 30-second quick start guide.
+
+Local automation scripts providing the same functionality as the GitHub Action for local execution. Supports configuration via properties files and command line arguments.
 
 ## 📁 Script Files
 
@@ -12,44 +14,64 @@ This folder contains shell and PowerShell scripts that provide the same function
 
 ## 🚀 Quick Start
 
-### Prerequisites
+**Prerequisites:** Node.js 20+, GitHub authentication (`gh auth login` or `GITHUB_TOKEN`). See [../README.md](../README.md) for details.
 
-1. **Node.js 20+** - Required for Copilot CLI
-2. **GitHub Copilot CLI** - Auto-installed by default, or install manually with `npm install -g @github/copilot`
-3. **GitHub Authentication** - Authenticate using one of these methods:
-   - GitHub Personal Access Token (recommended for scripts and CI/CD)
-   - GitHub CLI authentication (`gh auth login`)
-   - Environment variables (`GH_TOKEN` or `GITHUB_TOKEN`)
-
-> **Note**: The scripts will automatically install the latest GitHub Copilot CLI if not found. This can be disabled by setting `auto.install.cli=false` in the properties file or using `--auto-install-cli false`.
-
-### Installation Options
-
-#### Option 1: Central Installation (Recommended)
-Install once and use for multiple projects:
+### Use a Pre-built Agent
 
 ```bash
-# Install to a central location
-mkdir ~/copilot-tools
-cp -r * ~/copilot-tools/
+# List available agents
+./copilot-cli.sh --list-agents
 
-# Use from anywhere by specifying working directory
-~/copilot-tools/copilot-cli.sh \
-  --working-dir /path/to/your/project \
-  --prompt "Review this codebase"
+# Run an agent
+./copilot-cli.sh --agent code-review
+./copilot-cli.sh --agent security-analysis
 ```
 
-#### Option 2: Per-Project Installation
-Copy to each project for project-specific configurations:
+### Run Multiple Agents (Multi-Agent Composition)
+
+Run multiple agents sequentially for comprehensive analysis:
 
 ```bash
-# Copy to your project
-cp -r * /your/project/
-cd /your/project
+# Bash - Run security analysis followed by code review
+./copilot-cli.sh --agents "security-analysis,code-review"
 
-# Use with local configuration
-./copilot-cli.sh --prompt "Review the latest changes"
+# PowerShell
+.\copilot-cli.ps1 -Agents "security-analysis,code-review"
+
+# Control error behavior: 'continue' (default) runs all agents even if one fails
+#                        'stop' aborts on first failure
+./copilot-cli.sh --agents "security-analysis,code-review,test-generation" --agent-error-mode stop
+.\copilot-cli.ps1 -Agents "security-analysis,code-review" -AgentErrorMode continue
 ```
+
+**How it works:**
+- Agents run sequentially in the order specified
+- Each agent's output is saved to `~/.copilot-cli-automation/runs/{timestamp}/`
+- A summary report shows pass/fail status and duration for each agent
+- Agents share the working directory, so earlier agents can create files for later ones
+
+**Designing prompts for sequential workflows:**
+- Earlier agents can write marker files (e.g., `SECURITY_FINDINGS.md`)
+- Later agents can check for and reference these files in their analysis
+- Use `--agent-error-mode stop` if later agents depend on earlier ones succeeding
+
+### Use Default Prompts (Zero-Config)
+
+The default prompt files (`user.prompt.md` and `system.prompt.md`) now include working defaults that provide immediate value. Run a general-purpose code analysis with:
+
+```bash
+# Bash - Use built-in default prompts
+./copilot-cli.sh --use-defaults
+
+# PowerShell
+.\copilot-cli.ps1 -UseDefaults
+```
+
+The default prompts perform a comprehensive codebase analysis including:
+- Project structure and architecture overview
+- Code quality assessment and potential issues
+- Security vulnerabilities and risky patterns
+- Prioritized recommendations for improvement
 
 ### Basic Usage
 
@@ -63,15 +85,6 @@ chmod +x copilot-cli.sh
 
 # With system prompt for guided behavior
 ./copilot-cli.sh --system-prompt "Focus only on security vulnerabilities" --prompt "Review this code"
-
-# With GitHub token authentication
-./copilot-cli.sh --github-token "ghp_xxxxxxxxxxxxxxxxxxxx" --prompt "Review this code"
-
-# Disable auto-install if you prefer manual CLI management
-./copilot-cli.sh --auto-install-cli false --prompt "Review the code"
-
-# With custom configuration
-./copilot-cli.sh --config my-config.properties --prompt "Analyze security"
 ```
 
 #### PowerShell (Windows/Cross-platform)
@@ -79,17 +92,9 @@ chmod +x copilot-cli.sh
 # Basic usage
 .\copilot-cli.ps1 -Prompt "Review the code for issues"
 
-# With system prompt for guided behavior
-.\copilot-cli.ps1 -SystemPrompt "Focus only on security vulnerabilities" -Prompt "Review this code"
-
-# With GitHub token authentication
-.\copilot-cli.ps1 -GithubToken "ghp_xxxxxxxxxxxxxxxxxxxx" -Prompt "Review this code"
-
-# Disable auto-install if you prefer manual CLI management  
-.\copilot-cli.ps1 -AutoInstallCli false -Prompt "Review the code"
-
-# With custom configuration
-.\copilot-cli.ps1 -Config "my-config.properties" -Prompt "Analyze security"
+# Use a pre-built agent
+.\copilot-cli.ps1 -Agent code-review
+.\copilot-cli.ps1 -ListAgents
 ```
 
 ## � Authentication
@@ -191,6 +196,7 @@ OPTIONS:
     -c, --config FILE               Configuration properties file
     -p, --prompt TEXT              The prompt to execute (required)
     -s, --system-prompt TEXT       System instructions to guide AI behavior
+    --use-defaults                 Use built-in default prompts for quick analysis
     -t, --github-token TOKEN       GitHub Personal Access Token for authentication
     -m, --model MODEL              AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
     --auto-install-cli BOOL        Automatically install Copilot CLI if not found (true/false)
@@ -220,6 +226,7 @@ PARAMETERS:
     -Config FILE                    Configuration properties file
     -Prompt TEXT                   The prompt to execute (required)
     -SystemPrompt TEXT             System instructions to guide AI behavior
+    -UseDefaults                   Use built-in default prompts for quick analysis
     -GithubToken TOKEN             GitHub Personal Access Token for authentication
     -Model MODEL                   AI model
     -AutoInstallCli BOOL           Automatically install Copilot CLI if not found (true/false)
@@ -423,6 +430,60 @@ jq . my-mcp-config.json > /dev/null && echo "Valid JSON" || echo "Invalid JSON"
 
 ## 🐛 Troubleshooting
 
+### Quick Diagnostics
+
+Run the built-in diagnostic command to check all prerequisites at once:
+
+```bash
+# Bash
+./copilot-cli.sh --diagnose
+
+# PowerShell
+.\copilot-cli.ps1 -Diagnose
+```
+
+The diagnostic command checks:
+- Node.js version and installation
+- npm availability
+- GitHub Copilot CLI installation
+- GitHub authentication (all token sources)
+- Network connectivity to GitHub API
+- Configuration files validity
+- Built-in agents availability
+
+Example output:
+```
+=========================================
+  GitHub Copilot CLI - System Diagnostics
+=========================================
+
+Node.js:
+  ✓ Version: v22.1.0 (meets requirement >=20)
+  ✓ Path: /usr/local/bin/node
+
+npm:
+  ✓ Version: 10.2.0
+
+GitHub Copilot CLI:
+  ✓ Installed: 1.0.0
+
+GitHub Authentication:
+  ✓ GITHUB_TOKEN: Set (40 chars)
+  ○ GH_TOKEN: Not set
+  ✓ GitHub CLI: Authenticated
+
+Network:
+  ✓ GitHub API: Accessible
+
+Configuration:
+  ✓ Properties file: ./copilot-cli.properties
+  ○ MCP config: Not found (will be skipped)
+
+=========================================
+  Ready to run: YES ✓
+=========================================
+```
+
 ### Common Issues
 
 1. **Command not found: copilot**
@@ -471,8 +532,12 @@ Enable verbose logging:
 
 ### Environment Validation
 
-Check your environment:
+Use the `--diagnose` command for comprehensive validation:
 ```bash
+# Recommended: all-in-one check
+./copilot-cli.sh --diagnose
+
+# Or check components individually:
 # Check Node.js
 node --version
 

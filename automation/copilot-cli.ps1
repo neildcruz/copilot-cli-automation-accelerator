@@ -28,7 +28,42 @@ param(
     [switch]$NoColor,
     [switch]$DryRun,
     [switch]$Verbose,
-    [switch]$Help
+    [switch]$Help,
+    # New: Prompt repository integration
+    [string]$UsePrompt = "",
+    [string]$DefaultPromptRepo = "github/awesome-copilot",
+    [string]$PromptCacheDir = "",
+    [switch]$ListPrompts,
+    [string]$SearchPrompts = "",
+    [string]$PromptInfo = "",
+    [switch]$UpdatePromptCache,
+    # New: CLI parity options
+    [string]$Agent = "",
+    [string]$AllowAllUrls = "false",
+    [string]$AllowUrls = "",
+    [string]$DenyUrls = "",
+    [string]$AvailableTools = "",
+    [string]$ExcludedTools = "",
+    [string]$AddGitHubMcpTool = "",
+    [string]$AddGitHubMcpToolset = "",
+    [string]$NoAskUser = "false",
+    [switch]$Silent,
+    [string]$ConfigDir = "",
+    [string]$Share = "",
+    [switch]$ShareGist,
+    [string]$Resume = "",
+    [switch]$Continue,
+    [switch]$Init,
+    # New: Built-in agent discovery
+    [switch]$ListAgents,
+    # New: Use defaults flag
+    [switch]$UseDefaults,
+    # New: Multi-agent composition
+    [string]$Agents = "",
+    [ValidateSet("continue", "stop")]
+    [string]$AgentErrorMode = "continue",
+    # New: Diagnostic mode
+    [switch]$Diagnose
 )
 
 # Script directory
@@ -58,74 +93,154 @@ function Show-Usage {
     Write-Host @"
 GitHub Copilot CLI Wrapper Script (PowerShell)
 
+A zero-config wrapper for GitHub Copilot CLI with prompt repository integration,
+automatic installation, and CI/CD-optimized execution.
+
 Usage: .\copilot-cli.ps1 [OPTIONS]
 
-OPTIONS:
+QUICK START:
+    .\copilot-cli.ps1 -Agent code-review               # Use built-in agent
+    .\copilot-cli.ps1 -Agents "security,code-review"   # Run multiple agents
+    .\copilot-cli.ps1 -UseDefaults                     # Use built-in default prompts
+    .\copilot-cli.ps1 -ListAgents                      # List available agents
+    .\copilot-cli.ps1 -Prompt "Review this code"       # Direct prompt
+    .\copilot-cli.ps1 -Init                            # Initialize project config
+
+BUILT-IN AGENTS:
+    -ListAgents                    List all available built-in agents
+    -Agent NAME                    Use a built-in agent by name
+                                   Examples: code-review, security-analysis, test-generation
+    -Agents NAMES                  Run multiple agents sequentially (comma-separated)
+                                   Example: -Agents "security-analysis,code-review"
+    -AgentErrorMode MODE           Behavior on agent failure: 'continue' (default) or 'stop'
+
+PROMPT REPOSITORY OPTIONS:
+    -UsePrompt NAME                Use a prompt from GitHub repository
+                                   Format: name (uses default repo) or owner/repo:name
+                                   Examples: code-review, myorg/prompts:security-scan
+    -DefaultPromptRepo REPO        Default repository for prompts (default: github/awesome-copilot)
+    -PromptCacheDir DIR            Directory to cache downloaded prompts
+    -ListPrompts                   List available prompts from default repository
+    -SearchPrompts QUERY           Search prompts by keyword (repo:keyword format supported)
+    -PromptInfo NAME               Show detailed information about a prompt
+    -UpdatePromptCache             Force refresh of cached prompts
+
+PROMPT OPTIONS:
     -Config FILE                   Configuration properties file (default: copilot-cli.properties)
-    -Prompt TEXT                   The prompt to execute with Copilot CLI (required unless -PromptFile is provided)
-    -PromptFile FILE               Path to text/markdown file containing the prompt (overridden by -Prompt)
-    -SystemPrompt TEXT             System prompt with guidelines to be emphasized and followed
-    -SystemPromptFile FILE         Path to text/markdown file containing the system prompt (overridden by -SystemPrompt)
-    -GithubToken TOKEN             GitHub Personal Access Token for authentication
-    -Model MODEL                   AI model to use (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
-    -AutoInstallCli BOOL           Automatically install Copilot CLI if not found (true/false, default: true)
-    -McpConfig TEXT                MCP server configuration as JSON string
-    -McpConfigFile FILE            MCP server configuration file path
-    -AllowAllTools BOOL            Allow all tools to run automatically (true/false)
-    -AllowAllPaths BOOL            Allow access to any path (true/false)
-    -AdditionalDirectories DIRS    Comma-separated list of additional directories
+    -Prompt TEXT                   The prompt to execute (required unless using other prompt options)
+    -PromptFile FILE               Load prompt from text/markdown file
+    -SystemPrompt TEXT             System prompt with guidelines to emphasize
+    -SystemPromptFile FILE         Load system prompt from file
+    -UseDefaults                   Use built-in default prompts (useful for quick analysis)
+
+MODEL & AGENT OPTIONS:
+    -Model MODEL                   AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
+    -Agent AGENT                   Specify a custom agent to use
+
+TOOL PERMISSIONS:
+    -AllowAllTools BOOL            Allow all tools automatically (default: true)
+    -AllowAllPaths BOOL            Allow access to any filesystem path (default: false)
+    -AllowAllUrls BOOL             Allow access to all URLs (default: false)
     -AllowedTools TOOLS            Comma-separated list of allowed tools
     -DeniedTools TOOLS             Comma-separated list of denied tools
-    -DisableBuiltinMcps BOOL       Disable all built-in MCP servers (true/false)
+    -AvailableTools TOOLS          Limit which tools are available to the model
+    -ExcludedTools TOOLS           Exclude specific tools from the model
+    -AllowUrls URLS                Comma-separated list of allowed URLs/domains
+    -DenyUrls URLS                 Comma-separated list of denied URLs/domains
+    -AdditionalDirectories DIRS    Comma-separated list of additional directories
+
+MCP SERVER OPTIONS:
+    -McpConfig TEXT                MCP server configuration as JSON string
+    -McpConfigFile FILE            MCP server configuration file path
+    -DisableBuiltinMcps BOOL       Disable all built-in MCP servers (default: false)
     -DisableMcpServers SERVERS     Comma-separated list of MCP servers to disable
-    -EnableAllGithubMcpTools BOOL  Enable all GitHub MCP tools (true/false)
-    -LogLevel LEVEL                Log level (none, error, warning, info, debug, all)
+    -EnableAllGithubMcpTools BOOL  Enable all GitHub MCP tools (default: false)
+    -AddGitHubMcpTool TOOLS        Add specific GitHub MCP tools (comma-separated)
+    -AddGitHubMcpToolset TOOLSETS  Add GitHub MCP toolsets (comma-separated)
+
+SESSION & OUTPUT OPTIONS:
+    -Continue                      Resume the most recent session
+    -Resume SESSION-ID             Resume a specific session
+    -Share PATH                    Save session to markdown file after completion
+    -ShareGist                     Share session as a secret GitHub gist
+    -Silent                        Output only agent response (useful for scripting)
+
+EXECUTION OPTIONS:
+    -NoAskUser BOOL                Disable interactive questions (autonomous mode)
+    -ConfigDir PATH                Set the configuration directory
     -WorkingDirectory DIR          Working directory to run from
-    -TimeoutMinutes MINUTES        Timeout in minutes
-    -NoColor                       Disable colored output (automatically enabled for CI/CD)
-    -DryRun                        Show command without executing
+    -TimeoutMinutes MINUTES        Timeout in minutes (default: 30)
+    -LogLevel LEVEL                Log level (none, error, warning, info, debug, all)
+    -NoColor                       Disable colored output (auto-enabled for CI/CD)
+    -DryRun                        Show generated command without executing
     -Verbose                       Enable verbose output
+
+SETUP OPTIONS:
+    -GithubToken TOKEN             GitHub Personal Access Token for authentication
+    -AutoInstallCli BOOL           Auto-install Copilot CLI if not found (default: true)
+    -Init                          Initialize project with starter configuration files
+    -Diagnose                      Run comprehensive system check and show status report
     -Help                          Show this help message
 
 EXAMPLES:
-    # Basic usage with prompt
-    .\copilot-cli.ps1 -Prompt "Review the code for issues"
+    # Use a pre-built prompt from awesome-copilot
+    .\copilot-cli.ps1 -UsePrompt code-review
+    .\copilot-cli.ps1 -UsePrompt conventional-commit
     
-    # Using prompt from file
-    .\copilot-cli.ps1 -PromptFile "user.prompt.md"
+    # Use a prompt from a custom repository
+    .\copilot-cli.ps1 -UsePrompt myorg/internal-prompts:security-audit
     
-    # With system prompt for guidelines
-    .\copilot-cli.ps1 -Prompt "Review the code" -SystemPrompt "Focus on security and performance issues only"
+    # Set custom default repository for your organization
+    .\copilot-cli.ps1 -DefaultPromptRepo myorg/prompts -UsePrompt api-review
     
-    # With system prompt from file
-    .\copilot-cli.ps1 -Prompt "Review the code" -SystemPromptFile "system.prompt.md"
+    # Basic usage with inline prompt
+    .\copilot-cli.ps1 -Prompt "Review the code for security issues"
     
-    # Command line prompt overrides file
-    .\copilot-cli.ps1 -PromptFile "user.prompt.md" -Prompt "Override with this prompt"
+    # Load prompt from file with system guidelines
+    .\copilot-cli.ps1 -PromptFile task.md -SystemPromptFile guidelines.md
     
-    # With GitHub token authentication
-    .\copilot-cli.ps1 -Prompt "Review the code" -GithubToken "ghp_xxxxxxxxxxxxxxxxxxxx"
+    # Autonomous mode for CI/CD (no interactive questions)
+    .\copilot-cli.ps1 -UsePrompt code-review -NoAskUser true -Silent
     
-    # Using custom configuration file
-    .\copilot-cli.ps1 -Config "my-config.properties" -Prompt "Analyze security"
+    # Restricted permissions for security
+    .\copilot-cli.ps1 -Prompt "Analyze" -AllowAllPaths false -DeniedTools shell,bash
     
-    # With MCP configuration file
-    .\copilot-cli.ps1 -Prompt "Use custom tools" -McpConfigFile "examples\mcp-config.json"
+    # Initialize a new project with starter config
+    .\copilot-cli.ps1 -Init
     
-    # Dry run to see generated command
-    .\copilot-cli.ps1 -Prompt "Test" -DryRun
+    # Discover available prompts
+    .\copilot-cli.ps1 -ListPrompts
+    .\copilot-cli.ps1 -SearchPrompts security
+    .\copilot-cli.ps1 -PromptInfo code-review
+    
+    # Dry run to preview the command
+    .\copilot-cli.ps1 -UsePrompt code-review -DryRun
 
 AUTHENTICATION:
-    GitHub Copilot CLI requires authentication via one of these methods (in order of precedence):
+    GitHub Copilot CLI requires authentication (in order of precedence):
     1. -GithubToken command line parameter
     2. github.token in properties file  
-    3. GH_TOKEN environment variable
-    4. GITHUB_TOKEN environment variable
-    5. Existing GitHub CLI authentication (gh auth login)
+    3. COPILOT_GITHUB_TOKEN environment variable
+    4. GH_TOKEN environment variable
+    5. GITHUB_TOKEN environment variable
+    6. Existing GitHub CLI authentication (gh auth login)
 
-CONFIGURATION FILE:
-    Create a .properties file with key=value pairs for any option.
-    Command line arguments override configuration file values.
+CONFIGURATION FILE (copilot-cli.properties):
+    # Prompt options
+    use.prompt=code-review
+    default.prompt.repo=github/awesome-copilot
+    prompt.file=user.prompt.md
+    system.prompt.file=system.prompt.md
+    
+    # Tool permissions
+    allow.all.tools=true
+    allow.all.paths=false
+    denied.tools=shell,bash
+    
+    # Execution options
+    copilot.model=claude-sonnet-4.5
+    timeout.minutes=30
+    no.ask.user=false
 
 "@
 }
@@ -138,6 +253,203 @@ function Write-Log {
     }
 }
 
+# Function to run comprehensive system diagnostics
+function Show-DiagnosticStatus {
+    Write-Host ""
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host "  GitHub Copilot CLI - System Diagnostics" -ForegroundColor Cyan
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    $allPassed = $true
+    $warnings = 0
+    
+    # 1. Node.js Check
+    Write-Host "Node.js:" -ForegroundColor Yellow
+    try {
+        $nodeVersion = & node --version 2>$null
+        if ($nodeVersion) {
+            $version = [version]($nodeVersion.TrimStart('v').Split('.')[0..2] -join '.')
+            if ($version.Major -ge 20) {
+                Write-Host "  \u2713 Version: $nodeVersion (meets requirement >=20)" -ForegroundColor Green
+            } else {
+                Write-Host "  \u26A0 Version: $nodeVersion (recommended: >=20)" -ForegroundColor Yellow
+                $warnings++
+            }
+            $nodePath = (Get-Command node).Source
+            Write-Host "  \u2713 Path: $nodePath" -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "  \u2717 Not installed or not in PATH" -ForegroundColor Red
+        Write-Host "    -> Install from: https://nodejs.org/" -ForegroundColor Cyan
+        $allPassed = $false
+    }
+    Write-Host ""
+    
+    # 2. npm Check
+    Write-Host "npm:" -ForegroundColor Yellow
+    try {
+        $npmVersion = & npm --version 2>$null
+        if ($npmVersion) {
+            Write-Host "  \u2713 Version: $npmVersion" -ForegroundColor Green
+        }
+    } catch {
+        Write-Host "  \u2717 Not available" -ForegroundColor Red
+        $allPassed = $false
+    }
+    Write-Host ""
+    
+    # 3. GitHub Copilot CLI Check
+    Write-Host "GitHub Copilot CLI:" -ForegroundColor Yellow
+    try {
+        $copilotVersion = & copilot --version 2>$null
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  \u2713 Installed: $copilotVersion" -ForegroundColor Green
+        } else {
+            throw "Not installed"
+        }
+    } catch {
+        try {
+            $npmList = & npm list -g @github/copilot --depth=0 2>$null
+            if ($npmList -match '@github/copilot@') {
+                Write-Host "  \u2713 Installed (via npm)" -ForegroundColor Green
+            } else {
+                throw "Not found"
+            }
+        } catch {
+            Write-Host "  \u2717 Not installed" -ForegroundColor Red
+            Write-Host "    -> Install with: npm install -g @github/copilot" -ForegroundColor Cyan
+            $allPassed = $false
+        }
+    }
+    Write-Host ""
+    
+    # 4. GitHub Authentication Check
+    Write-Host "GitHub Authentication:" -ForegroundColor Yellow
+    $hasAuth = $false
+    
+    if ($env:GITHUB_TOKEN) {
+        Write-Host "  \u2713 GITHUB_TOKEN: Set ($($env:GITHUB_TOKEN.Length) chars)" -ForegroundColor Green
+        $hasAuth = $true
+    } else {
+        Write-Host "  \u25CB GITHUB_TOKEN: Not set" -ForegroundColor Gray
+    }
+    
+    if ($env:GH_TOKEN) {
+        Write-Host "  \u2713 GH_TOKEN: Set ($($env:GH_TOKEN.Length) chars)" -ForegroundColor Green
+        $hasAuth = $true
+    } else {
+        Write-Host "  \u25CB GH_TOKEN: Not set" -ForegroundColor Gray
+    }
+    
+    if ($env:COPILOT_GITHUB_TOKEN) {
+        Write-Host "  \u2713 COPILOT_GITHUB_TOKEN: Set" -ForegroundColor Green
+        $hasAuth = $true
+    } else {
+        Write-Host "  \u25CB COPILOT_GITHUB_TOKEN: Not set" -ForegroundColor Gray
+    }
+    
+    try {
+        $ghToken = & gh auth token 2>$null
+        if ($ghToken -and $LASTEXITCODE -eq 0) {
+            Write-Host "  \u2713 GitHub CLI: Authenticated" -ForegroundColor Green
+            $hasAuth = $true
+        } else {
+            Write-Host "  \u25CB GitHub CLI: Not authenticated" -ForegroundColor Gray
+        }
+    } catch {
+        Write-Host "  \u25CB GitHub CLI: Not installed" -ForegroundColor Gray
+    }
+    
+    if (-not $hasAuth) {
+        Write-Host "  \u26A0 No authentication configured" -ForegroundColor Yellow
+        Write-Host "    -> Run: gh auth login" -ForegroundColor Cyan
+        Write-Host "    -> Or set: `$env:GITHUB_TOKEN = 'ghp_...'" -ForegroundColor Cyan
+        $warnings++
+    }
+    Write-Host ""
+    
+    # 5. Network Check
+    Write-Host "Network:" -ForegroundColor Yellow
+    try {
+        $response = Invoke-RestMethod -Uri "https://api.github.com" -TimeoutSec 10 -UseBasicParsing
+        Write-Host "  \u2713 GitHub API: Accessible" -ForegroundColor Green
+    } catch {
+        Write-Host "  \u2717 GitHub API: Not accessible" -ForegroundColor Red
+        Write-Host "    -> Check internet connection or proxy settings" -ForegroundColor Cyan
+        $allPassed = $false
+    }
+    
+    if ($env:HTTP_PROXY -or $env:HTTPS_PROXY) {
+        Write-Host "  \u2713 Proxy configured:" -ForegroundColor Green
+        if ($env:HTTP_PROXY) { Write-Host "    HTTP_PROXY: $($env:HTTP_PROXY)" -ForegroundColor Gray }
+        if ($env:HTTPS_PROXY) { Write-Host "    HTTPS_PROXY: $($env:HTTPS_PROXY)" -ForegroundColor Gray }
+    }
+    Write-Host ""
+    
+    # 6. Configuration Check
+    Write-Host "Configuration:" -ForegroundColor Yellow
+    $configPath = Join-Path $ScriptDir "copilot-cli.properties"
+    if (Test-Path $configPath) {
+        Write-Host "  \u2713 Properties file: $configPath" -ForegroundColor Green
+    } else {
+        Write-Host "  \u25CB Properties file: Not found (using defaults)" -ForegroundColor Gray
+    }
+    
+    $mcpPath = Join-Path $ScriptDir "mcp-config.json"
+    if (Test-Path $mcpPath) {
+        try {
+            $null = Get-Content $mcpPath -Raw | ConvertFrom-Json
+            Write-Host "  \u2713 MCP config: $mcpPath (valid JSON)" -ForegroundColor Green
+        } catch {
+            Write-Host "  \u2717 MCP config: $mcpPath (invalid JSON)" -ForegroundColor Red
+            $allPassed = $false
+        }
+    } else {
+        Write-Host "  \u25CB MCP config: Not found (will be skipped)" -ForegroundColor Gray
+    }
+    Write-Host ""
+    
+    # 7. Working Directory Check
+    Write-Host "Working Directory:" -ForegroundColor Yellow
+    $currentDir = Get-Location
+    Write-Host "  \u2713 Current: $currentDir" -ForegroundColor Green
+    $gitDir = Join-Path $currentDir ".git"
+    if (Test-Path $gitDir) {
+        Write-Host "  \u2713 Git repository detected" -ForegroundColor Green
+    }
+    Write-Host ""
+    
+    # 8. Built-in Agents Check
+    Write-Host "Built-in Agents:" -ForegroundColor Yellow
+    $agents = Get-BuiltInAgents
+    if ($agents.Count -gt 0) {
+        Write-Host "  \u2713 Available: $($agents.Count) agents" -ForegroundColor Green
+        foreach ($agent in $agents | Select-Object -First 5) {
+            Write-Host "    - $($agent.Name)" -ForegroundColor Gray
+        }
+        if ($agents.Count -gt 5) {
+            Write-Host "    - ... and $($agents.Count - 5) more" -ForegroundColor Gray
+        }
+    } else {
+        Write-Host "  \u25CB No built-in agents found" -ForegroundColor Gray
+    }
+    Write-Host ""
+    
+    # Summary
+    Write-Host "=========================================" -ForegroundColor Cyan
+    if ($allPassed -and $warnings -eq 0) {
+        Write-Host "  Ready to run: YES \u2713" -ForegroundColor Green
+    } elseif ($allPassed) {
+        Write-Host "  Ready to run: YES (with $warnings warning(s))" -ForegroundColor Yellow
+    } else {
+        Write-Host "  Ready to run: NO \u2717" -ForegroundColor Red
+        Write-Host "  Fix the issues above and run -Diagnose again" -ForegroundColor Yellow
+    }
+    Write-Host "=========================================" -ForegroundColor Cyan
+    Write-Host ""
+}
+
 # Function to parse boolean values
 function Parse-Bool {
     param([string]$Value)
@@ -148,6 +460,60 @@ function Parse-Bool {
     }
 }
 
+# Function to find similar files for suggestions
+function Find-SimilarFiles {
+    param(
+        [string]$FilePath,
+        [string[]]$Extensions = @('.md', '.txt')
+    )
+    
+    $directory = Split-Path $FilePath -Parent
+    if ([string]::IsNullOrEmpty($directory)) {
+        $directory = $ScriptDir
+    }
+    
+    $fileName = Split-Path $FilePath -Leaf
+    $baseName = [System.IO.Path]::GetFileNameWithoutExtension($fileName)
+    
+    $suggestions = @()
+    
+    if (Test-Path $directory) {
+        # Find files with similar names or matching extensions
+        $allFiles = Get-ChildItem -Path $directory -File -ErrorAction SilentlyContinue
+        
+        foreach ($file in $allFiles) {
+            $fileExt = $file.Extension.ToLower()
+            if ($fileExt -in $Extensions) {
+                # Check for similar name
+                $similarityScore = 0
+                $fileBase = [System.IO.Path]::GetFileNameWithoutExtension($file.Name)
+                
+                # Exact extension match with different name
+                if ($file.Name -like "*$baseName*" -or $baseName -like "*$fileBase*") {
+                    $similarityScore = 2
+                } elseif ($file.Extension -eq [System.IO.Path]::GetExtension($fileName)) {
+                    $similarityScore = 1
+                } elseif ($fileExt -in $Extensions) {
+                    $similarityScore = 1
+                }
+                
+                if ($similarityScore -gt 0) {
+                    $suggestions += @{
+                        Name = $file.Name
+                        Path = $file.FullName
+                        Score = $similarityScore
+                    }
+                }
+            }
+        }
+        
+        # Sort by score and return top 5
+        $suggestions = $suggestions | Sort-Object { -$_.Score } | Select-Object -First 5
+    }
+    
+    return $suggestions
+}
+
 # Function to load content from file preserving formatting
 function Load-FileContent {
     param(
@@ -156,6 +522,35 @@ function Load-FileContent {
     )
     
     if (-not (Test-Path $FilePath)) {
+        Write-Host "Error: $ContentType file not found: $FilePath" -ForegroundColor Red
+        
+        # Find and suggest similar files
+        $suggestions = Find-SimilarFiles -FilePath $FilePath
+        if ($suggestions.Count -gt 0) {
+            Write-Host ""
+            Write-Host "Did you mean one of these?" -ForegroundColor Yellow
+            foreach ($suggestion in $suggestions) {
+                Write-Host "  - $($suggestion.Name)" -ForegroundColor Cyan
+            }
+            Write-Host ""
+            Write-Host "Tip: Use the correct file path or create the file:" -ForegroundColor Gray
+            Write-Host "  touch $FilePath" -ForegroundColor Cyan
+        } else {
+            $directory = Split-Path $FilePath -Parent
+            if ([string]::IsNullOrEmpty($directory)) { $directory = "." }
+            Write-Host ""
+            Write-Host "No similar files found in: $directory" -ForegroundColor Gray
+            Write-Host "Available .md files:" -ForegroundColor Yellow
+            $mdFiles = Get-ChildItem -Path $directory -Filter "*.md" -ErrorAction SilentlyContinue | Select-Object -First 5
+            if ($mdFiles) {
+                foreach ($file in $mdFiles) {
+                    Write-Host "  - $($file.Name)" -ForegroundColor Cyan
+                }
+            } else {
+                Write-Host "  (none)" -ForegroundColor Gray
+            }
+        }
+        
         throw "$ContentType file '$FilePath' not found"
     }
     
@@ -180,6 +575,819 @@ function Load-FileContent {
     }
     
     return $content
+}
+
+# Function to check if prompt content has meaningful text (not just comments)
+function Test-PromptHasContent {
+    param(
+        [string]$Content,
+        [string]$ContentType
+    )
+    
+    if ([string]::IsNullOrWhiteSpace($Content)) {
+        return $false
+    }
+    
+    # Remove HTML comments and check if anything meaningful remains
+    $withoutComments = $Content -replace '<!--[\s\S]*?-->', ''
+    # Remove markdown headers that are just titles
+    $withoutHeaders = $withoutComments -replace '^#.*$', '' -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    
+    if ($withoutHeaders.Count -eq 0) {
+        Write-Host "Warning: $ContentType appears to contain only comments or headers. The prompt may not produce meaningful results." -ForegroundColor Yellow
+        Write-Host "Tip: Add actual instructions to your prompt file, or use -UseDefaults to use the built-in default prompts." -ForegroundColor Gray
+        return $false
+    }
+    
+    return $true
+}
+
+# Function to get the prompt cache directory
+function Get-PromptCacheDir {
+    if (-not [string]::IsNullOrEmpty($script:PromptCacheDir)) {
+        return $script:PromptCacheDir
+    }
+    
+    # Default to ~/.copilot-cli-automation/prompts/
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $env:HOME }
+    return Join-Path $homeDir ".copilot-cli-automation" "prompts"
+}
+
+# Function to parse prompt reference (owner/repo:name or just name)
+function Parse-PromptReference {
+    param([string]$Reference)
+    
+    $result = @{
+        Owner = ""
+        Repo = ""
+        Path = "prompts"
+        Name = ""
+        FullRepo = ""
+    }
+    
+    if ($Reference -match '^([^/:]+)/([^/:]+):(.+)$') {
+        # Format: owner/repo:name or owner/repo:path/name
+        $result.Owner = $matches[1]
+        $result.Repo = $matches[2]
+        $result.FullRepo = "$($matches[1])/$($matches[2])"
+        $pathAndName = $matches[3]
+        
+        # Check if there's a nested path
+        if ($pathAndName -match '^(.+)/([^/]+)$') {
+            $result.Path = $matches[1]
+            $result.Name = $matches[2]
+        } else {
+            $result.Path = "prompts"
+            $result.Name = $pathAndName
+        }
+    } else {
+        # Format: just name - use default repo
+        $defaultParts = $script:DefaultPromptRepo -split '/'
+        $result.Owner = $defaultParts[0]
+        $result.Repo = $defaultParts[1]
+        $result.FullRepo = $script:DefaultPromptRepo
+        $result.Path = "prompts"
+        $result.Name = $Reference
+    }
+    
+    return $result
+}
+
+# Function to get cached prompt path
+function Get-CachedPromptPath {
+    param([hashtable]$ParsedRef)
+    
+    $cacheDir = Get-PromptCacheDir
+    $repoDir = Join-Path $cacheDir $ParsedRef.Owner $ParsedRef.Repo
+    
+    # Ensure .prompt.md extension
+    $fileName = $ParsedRef.Name
+    if (-not $fileName.EndsWith(".prompt.md")) {
+        $fileName = "$fileName.prompt.md"
+    }
+    
+    return Join-Path $repoDir $fileName
+}
+
+# Function to fetch prompt from GitHub repository
+function Get-RemotePrompt {
+    param(
+        [string]$PromptReference,
+        [switch]$ForceRefresh
+    )
+    
+    $parsed = Parse-PromptReference -Reference $PromptReference
+    $cachedPath = Get-CachedPromptPath -ParsedRef $parsed
+    
+    # Check cache first (unless force refresh)
+    if (-not $ForceRefresh -and (Test-Path $cachedPath)) {
+        Write-Log "Using cached prompt: $cachedPath"
+        return Get-Content -Path $cachedPath -Raw
+    }
+    
+    # Ensure .prompt.md extension for URL
+    $fileName = $parsed.Name
+    if (-not $fileName.EndsWith(".prompt.md")) {
+        $fileName = "$fileName.prompt.md"
+    }
+    
+    # Construct GitHub raw URL
+    $url = "https://raw.githubusercontent.com/$($parsed.FullRepo)/main/$($parsed.Path)/$fileName"
+    
+    Write-Host "Fetching prompt from: $url" -ForegroundColor Cyan
+    Write-Log "Fetching prompt from URL: $url"
+    
+    try {
+        $response = Invoke-WebRequest -Uri $url -UseBasicParsing -ErrorAction Stop
+        $content = $response.Content
+        
+        # Cache the prompt
+        $cacheDir = Split-Path $cachedPath -Parent
+        if (-not (Test-Path $cacheDir)) {
+            New-Item -ItemType Directory -Path $cacheDir -Force | Out-Null
+        }
+        $content | Set-Content -Path $cachedPath -Encoding UTF8 -NoNewline
+        Write-Log "Cached prompt to: $cachedPath"
+        
+        return $content
+    } catch {
+        if (Test-Path $cachedPath) {
+            Write-Host "Warning: Could not fetch remote prompt, using cached version" -ForegroundColor Yellow
+            return Get-Content -Path $cachedPath -Raw
+        }
+        throw "Failed to fetch prompt '$PromptReference' from $url. Error: $($_.Exception.Message)"
+    }
+}
+
+# Function to parse prompt file frontmatter (YAML-like)
+function Parse-PromptFrontmatter {
+    param([string]$Content)
+    
+    $result = @{
+        Description = ""
+        Tools = @()
+        Agent = ""
+        Body = $Content
+    }
+    
+    # Check for YAML frontmatter (--- at start and end)
+    if ($Content -match '^---\s*\r?\n([\s\S]*?)\r?\n---\s*\r?\n([\s\S]*)$') {
+        $frontmatter = $matches[1]
+        $result.Body = $matches[2].Trim()
+        
+        # Parse frontmatter fields
+        if ($frontmatter -match "description:\s*['""]?([^'""]+)['""]?") {
+            $result.Description = $matches[1].Trim()
+        }
+        if ($frontmatter -match "agent:\s*['""]?([^'""]+)['""]?") {
+            $result.Agent = $matches[1].Trim()
+        }
+        if ($frontmatter -match "tools:\s*\[([^\]]+)\]") {
+            $toolsStr = $matches[1]
+            $result.Tools = $toolsStr -split ',' | ForEach-Object { $_.Trim().Trim("'").Trim('"') }
+        }
+    }
+    
+    return $result
+}
+
+# Function to list prompts from a repository
+function Get-PromptList {
+    param(
+        [string]$RepoReference = ""
+    )
+    
+    # Parse repo reference or use default
+    $repo = if ([string]::IsNullOrEmpty($RepoReference)) { $script:DefaultPromptRepo } else { $RepoReference }
+    
+    # Use GitHub API to list prompts directory
+    $apiUrl = "https://api.github.com/repos/$repo/contents/prompts"
+    
+    Write-Host "Fetching prompt list from: $repo" -ForegroundColor Cyan
+    
+    try {
+        $headers = @{}
+        if (-not [string]::IsNullOrEmpty($env:GH_TOKEN)) {
+            $headers["Authorization"] = "token $($env:GH_TOKEN)"
+        }
+        
+        $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -ErrorAction Stop
+        
+        $prompts = $response | Where-Object { $_.name -match '\.prompt\.md$' } | ForEach-Object {
+            $name = $_.name -replace '\.prompt\.md$', ''
+            @{
+                Name = $name
+                FullName = $_.name
+                Repo = $repo
+                Url = $_.download_url
+            }
+        }
+        
+        return $prompts
+    } catch {
+        throw "Failed to list prompts from $repo. Error: $($_.Exception.Message)"
+    }
+}
+
+# Function to search prompts by keyword
+function Search-Prompts {
+    param(
+        [string]$Query
+    )
+    
+    # Parse query for repo:keyword format
+    $repo = $script:DefaultPromptRepo
+    $keyword = $Query
+    
+    if ($Query -match '^([^/:]+/[^/:]+):(.+)$') {
+        $repo = $matches[1]
+        $keyword = $matches[2]
+    }
+    
+    Write-Host "Searching for '$keyword' in $repo..." -ForegroundColor Cyan
+    
+    $allPrompts = Get-PromptList -RepoReference $repo
+    
+    # Filter by keyword (case-insensitive)
+    $matches = $allPrompts | Where-Object { $_.Name -match $keyword }
+    
+    return $matches
+}
+
+# Function to show prompt information
+function Show-PromptInfo {
+    param([string]$PromptReference)
+    
+    $content = Get-RemotePrompt -PromptReference $PromptReference
+    $parsed = Parse-PromptFrontmatter -Content $content
+    $ref = Parse-PromptReference -Reference $PromptReference
+    
+    Write-Host ""
+    Write-Host "Prompt: $($ref.Name)" -ForegroundColor Green
+    Write-Host "Repository: $($ref.FullRepo)" -ForegroundColor Gray
+    Write-Host ""
+    
+    if (-not [string]::IsNullOrEmpty($parsed.Description)) {
+        Write-Host "Description:" -ForegroundColor Yellow
+        Write-Host "  $($parsed.Description)"
+        Write-Host ""
+    }
+    
+    if (-not [string]::IsNullOrEmpty($parsed.Agent)) {
+        Write-Host "Agent: $($parsed.Agent)" -ForegroundColor Yellow
+    }
+    
+    if ($parsed.Tools.Count -gt 0) {
+        Write-Host "Required Tools:" -ForegroundColor Yellow
+        foreach ($tool in $parsed.Tools) {
+            Write-Host "  - $tool"
+        }
+        Write-Host ""
+    }
+    
+    Write-Host "Preview (first 500 chars):" -ForegroundColor Yellow
+    $preview = if ($parsed.Body.Length -gt 500) { $parsed.Body.Substring(0, 500) + "..." } else { $parsed.Body }
+    Write-Host $preview -ForegroundColor Gray
+}
+
+# Function to display prompt list
+function Show-PromptList {
+    param([array]$Prompts)
+    
+    if ($Prompts.Count -eq 0) {
+        Write-Host "No prompts found." -ForegroundColor Yellow
+        return
+    }
+    
+    Write-Host ""
+    Write-Host "Available Prompts ($($Prompts.Count) found):" -ForegroundColor Green
+    Write-Host ""
+    
+    foreach ($prompt in $Prompts | Sort-Object { $_.Name }) {
+        Write-Host "  $($prompt.Name)" -ForegroundColor White
+    }
+    
+    Write-Host ""
+    Write-Host "Usage: -UsePrompt <name> or -UsePrompt owner/repo:name" -ForegroundColor Gray
+    Write-Host "Info:  -PromptInfo <name> for details" -ForegroundColor Gray
+}
+
+# Function to initialize a new project with copilot-cli configuration
+function Initialize-CopilotCliProject {
+    $configPath = Join-Path (Get-Location) "copilot-cli.properties"
+    $userPromptPath = Join-Path (Get-Location) "user.prompt.md"
+    $systemPromptPath = Join-Path (Get-Location) "system.prompt.md"
+    
+    if (Test-Path $configPath) {
+        Write-Host "Configuration file already exists: $configPath" -ForegroundColor Yellow
+        return
+    }
+    
+    $configContent = @"
+# Copilot CLI Wrapper Configuration
+# Generated by copilot-cli.ps1 -Init
+
+# Prompt Configuration
+# Use one of: prompt, prompt.file, or use.prompt
+# prompt=Your prompt text here
+prompt.file=user.prompt.md
+system.prompt.file=system.prompt.md
+
+# Or use a pre-built prompt from awesome-copilot (or custom repo)
+# use.prompt=code-review
+# default.prompt.repo=github/awesome-copilot
+
+# Model Selection
+copilot.model=claude-sonnet-4.5
+
+# Tool Permissions
+allow.all.tools=true
+allow.all.paths=false
+
+# Timeout (minutes)
+timeout.minutes=30
+
+# Log Level (none, error, warning, info, debug, all)
+log.level=info
+"@
+
+    $userPromptContent = @"
+# User Prompt
+
+<!-- 
+This file contains the main prompt/task for Copilot CLI.
+Edit this file to specify what you want Copilot to do.
+-->
+
+Analyze this codebase and provide a summary of:
+1. The project structure and architecture
+2. Key technologies and frameworks used
+3. Potential areas for improvement
+"@
+
+    $systemPromptContent = @"
+# System Prompt
+
+<!-- 
+This file contains guidelines and constraints for Copilot.
+These instructions will be emphasized when executing your prompt.
+-->
+
+You are a helpful AI assistant focused on code quality and best practices.
+Please follow these guidelines:
+- Be thorough but concise in your analysis
+- Provide actionable recommendations
+- Consider security, performance, and maintainability
+"@
+    
+    $configContent | Set-Content -Path $configPath -Encoding UTF8
+    $userPromptContent | Set-Content -Path $userPromptPath -Encoding UTF8  
+    $systemPromptContent | Set-Content -Path $systemPromptPath -Encoding UTF8
+    
+    Write-Host "Initialized Copilot CLI configuration:" -ForegroundColor Green
+    Write-Host "  - $configPath" -ForegroundColor White
+    Write-Host "  - $userPromptPath" -ForegroundColor White
+    Write-Host "  - $systemPromptPath" -ForegroundColor White
+    Write-Host ""
+    Write-Host "Edit these files and run: .\copilot-cli.ps1" -ForegroundColor Cyan
+}
+
+# Function to get built-in agents from examples directory
+function Get-BuiltInAgents {
+    $examplesDir = Join-Path $ScriptDir "examples"
+    $agents = @()
+    
+    if (-not (Test-Path $examplesDir)) {
+        return $agents
+    }
+    
+    Get-ChildItem -Path $examplesDir -Directory | ForEach-Object {
+        $agentDir = $_.FullName
+        $agentName = $_.Name
+        
+        # Check if this is a valid agent directory (has a properties file or prompt files)
+        $hasConfig = (Test-Path (Join-Path $agentDir "copilot-cli.properties")) -or 
+                     (Test-Path (Join-Path $agentDir "*.properties"))
+        $hasPrompt = (Test-Path (Join-Path $agentDir "user.prompt.md")) -or
+                     (Test-Path (Join-Path $agentDir "system.prompt.md"))
+        
+        if ($hasConfig -or $hasPrompt) {
+            $description = ""
+            $descFile = Join-Path $agentDir "description.txt"
+            if (Test-Path $descFile) {
+                $description = (Get-Content $descFile -Raw).Trim()
+            }
+            
+            $agents += [PSCustomObject]@{
+                Name = $agentName
+                Path = $agentDir
+                Description = $description
+            }
+        }
+    }
+    
+    return $agents
+}
+
+# Function to display built-in agents list
+function Show-BuiltInAgents {
+    $agents = Get-BuiltInAgents
+    
+    if ($agents.Count -eq 0) {
+        Write-Host "No built-in agents found in examples directory." -ForegroundColor Yellow
+        return
+    }
+    
+    Write-Host ""
+    Write-Host "Built-in Agents:" -ForegroundColor Green
+    Write-Host ""
+    
+    $maxNameLen = ($agents | ForEach-Object { $_.Name.Length } | Measure-Object -Maximum).Maximum
+    $maxNameLen = [Math]::Max($maxNameLen, 20)
+    
+    foreach ($agent in $agents | Sort-Object Name) {
+        $paddedName = $agent.Name.PadRight($maxNameLen)
+        if ($agent.Description) {
+            Write-Host "  $paddedName  $($agent.Description)" -ForegroundColor White
+        } else {
+            Write-Host "  $paddedName" -ForegroundColor White
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "Usage: -Agent <name>  (e.g., -Agent code-review)" -ForegroundColor Gray
+}
+
+# Function to load a built-in agent configuration
+function Get-BuiltInAgentConfig {
+    param([string]$AgentName)
+    
+    $agents = Get-BuiltInAgents
+    $agent = $agents | Where-Object { $_.Name -eq $AgentName }
+    
+    if (-not $agent) {
+        return $null
+    }
+    
+    $result = @{
+        Path = $agent.Path
+        PropertiesFile = $null
+        UserPromptFile = $null
+        SystemPromptFile = $null
+    }
+    
+    # Look for properties file
+    $propsFile = Join-Path $agent.Path "copilot-cli.properties"
+    if (Test-Path $propsFile) {
+        $result.PropertiesFile = $propsFile
+    } else {
+        # Look for any .properties file
+        $propsFiles = Get-ChildItem -Path $agent.Path -Filter "*.properties" | Select-Object -First 1
+        if ($propsFiles) {
+            $result.PropertiesFile = $propsFiles.FullName
+        }
+    }
+    
+    # Look for prompt files
+    $userPrompt = Join-Path $agent.Path "user.prompt.md"
+    if (Test-Path $userPrompt) {
+        $result.UserPromptFile = $userPrompt
+    }
+    
+    $systemPrompt = Join-Path $agent.Path "system.prompt.md"
+    if (Test-Path $systemPrompt) {
+        $result.SystemPromptFile = $systemPrompt
+    }
+    
+    return $result
+}
+
+# ============================================================================
+# Multi-Agent Composition Functions
+# ============================================================================
+
+# Function to parse comma-separated agent list
+function Get-AgentList {
+    param([string]$AgentsString)
+    
+    $agents = $AgentsString -split ',' | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne '' }
+    return $agents
+}
+
+# Function to validate all agents in a list exist
+function Test-AgentList {
+    param([string]$AgentsString)
+    
+    $agents = Get-AgentList -AgentsString $AgentsString
+    $allAgents = Get-BuiltInAgents
+    $validAgents = @()
+    $invalidAgents = @()
+    
+    foreach ($agentName in $agents) {
+        $exists = $allAgents | Where-Object { $_.Name -eq $agentName }
+        if ($exists) {
+            $validAgents += $agentName
+        } else {
+            $invalidAgents += $agentName
+        }
+    }
+    
+    if ($invalidAgents.Count -gt 0) {
+        Write-Host "Error: The following agents were not found:" -ForegroundColor Red
+        foreach ($agent in $invalidAgents) {
+            Write-Host "  - $agent" -ForegroundColor Red
+        }
+        Write-Host ""
+        Write-Host "Available agents:" -ForegroundColor Yellow
+        foreach ($agent in $allAgents) {
+            Write-Host "  - $($agent.Name)" -ForegroundColor Gray
+        }
+        Write-Host ""
+        Write-Host "Use -ListAgents to see all available agents." -ForegroundColor Gray
+        return $null
+    }
+    
+    return $validAgents
+}
+
+# Function to run a single agent and capture results
+function Invoke-SingleAgent {
+    param(
+        [string]$AgentName,
+        [int]$AgentIndex,
+        [int]$TotalAgents,
+        [string]$OutputDir
+    )
+    
+    $startTime = Get-Date
+    $outputFile = Join-Path $OutputDir "$AgentName.output.md"
+    
+    Write-Host ""
+    Write-Host "===== Running Agent: $AgentName ($AgentIndex/$TotalAgents) =====" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Get agent configuration
+    $builtInConfig = Get-BuiltInAgentConfig -AgentName $AgentName
+    if (-not $builtInConfig) {
+        Write-Host "Error: Failed to load agent '$AgentName'" -ForegroundColor Red
+        return @{
+            Success = $false
+            ExitCode = 1
+            Duration = 0
+            Output = ""
+        }
+    }
+    
+    # Store original values
+    $origConfig = $script:Config
+    $origPromptFile = $script:PromptFile
+    $origSystemPromptFile = $script:SystemPromptFile
+    $origPrompt = $script:Prompt
+    $origSystemPrompt = $script:SystemPrompt
+    
+    # Apply agent configuration
+    if ($builtInConfig.PropertiesFile) {
+        $script:Config = $builtInConfig.PropertiesFile
+        Load-Config -ConfigFile $script:Config
+    }
+    
+    if ($builtInConfig.UserPromptFile) {
+        $script:PromptFile = $builtInConfig.UserPromptFile
+        $script:Prompt = ""
+    }
+    
+    if ($builtInConfig.SystemPromptFile) {
+        $script:SystemPromptFile = $builtInConfig.SystemPromptFile
+        $script:SystemPrompt = ""
+    }
+    
+    # Load prompts from files
+    if ([string]::IsNullOrEmpty($script:Prompt) -and -not [string]::IsNullOrEmpty($script:PromptFile)) {
+        $resolvedPromptFile = Resolve-FilePath -FilePath $script:PromptFile
+        if (Test-Path $resolvedPromptFile) {
+            $script:Prompt = Get-Content $resolvedPromptFile -Raw
+        }
+    }
+    if ([string]::IsNullOrEmpty($script:SystemPrompt) -and -not [string]::IsNullOrEmpty($script:SystemPromptFile)) {
+        $resolvedSystemFile = Resolve-FilePath -FilePath $script:SystemPromptFile
+        if (Test-Path $resolvedSystemFile) {
+            $script:SystemPrompt = Get-Content $resolvedSystemFile -Raw
+        }
+    }
+    
+    # Build command
+    $copilotCmd = Build-CopilotCommand
+    
+    Write-Host "Agent command: $copilotCmd" -ForegroundColor Gray
+    Write-Host ""
+    
+    $exitCode = 0
+    $output = ""
+    
+    # Execute with output capture
+    $outputBuilder = New-Object System.Text.StringBuilder
+    [void]$outputBuilder.AppendLine("# Agent: $AgentName")
+    [void]$outputBuilder.AppendLine("## Execution Time: $(Get-Date -Format 'o')")
+    [void]$outputBuilder.AppendLine("")
+    
+    if ($DryRun) {
+        $dryRunMsg = "[DRY RUN] Command: $copilotCmd"
+        [void]$outputBuilder.AppendLine($dryRunMsg)
+        Write-Host $dryRunMsg -ForegroundColor Yellow
+    } else {
+        try {
+            $processInfo = New-Object System.Diagnostics.ProcessStartInfo
+            $processInfo.FileName = "powershell.exe"
+            $processInfo.Arguments = "-Command `"& { $copilotCmd }`""
+            $processInfo.RedirectStandardOutput = $true
+            $processInfo.RedirectStandardError = $true
+            $processInfo.UseShellExecute = $false
+            $processInfo.CreateNoWindow = $true
+            $processInfo.WorkingDirectory = (Get-Location).Path
+            
+            $process = New-Object System.Diagnostics.Process
+            $process.StartInfo = $processInfo
+            
+            $process.Start() | Out-Null
+            
+            $stdout = $process.StandardOutput.ReadToEnd()
+            $stderr = $process.StandardError.ReadToEnd()
+            
+            $timeoutMs = $TimeoutMinutes * 60 * 1000
+            $completed = $process.WaitForExit($timeoutMs)
+            
+            if (-not $completed) {
+                $process.Kill()
+                throw "Agent execution timed out after $TimeoutMinutes minutes"
+            }
+            
+            $exitCode = $process.ExitCode
+            
+            # Output stdout
+            if ($stdout) {
+                Write-Host $stdout
+                [void]$outputBuilder.AppendLine($stdout)
+            }
+            if ($stderr) {
+                Write-Host $stderr -ForegroundColor Yellow
+                [void]$outputBuilder.AppendLine($stderr)
+            }
+            
+        } catch {
+            $exitCode = 1
+            Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+            [void]$outputBuilder.AppendLine("Error: $($_.Exception.Message)")
+        } finally {
+            if ($process -and -not $process.HasExited) {
+                try { $process.Kill() } catch { }
+            }
+            if ($process) {
+                $process.Dispose()
+            }
+        }
+    }
+    
+    $output = $outputBuilder.ToString()
+    $output | Out-File -FilePath $outputFile -Encoding utf8
+    
+    $endTime = Get-Date
+    $duration = [int]($endTime - $startTime).TotalSeconds
+    
+    # Restore original values
+    $script:Config = $origConfig
+    $script:PromptFile = $origPromptFile
+    $script:SystemPromptFile = $origSystemPromptFile
+    $script:Prompt = $origPrompt
+    $script:SystemPrompt = $origSystemPrompt
+    
+    # Report status
+    if ($exitCode -eq 0) {
+        Write-Host ""
+        Write-Host "Agent '$AgentName' completed successfully (${duration}s)" -ForegroundColor Green
+    } else {
+        Write-Host ""
+        Write-Host "Agent '$AgentName' failed with exit code $exitCode (${duration}s)" -ForegroundColor Red
+    }
+    
+    return @{
+        Success = ($exitCode -eq 0)
+        ExitCode = $exitCode
+        Duration = $duration
+        Output = $output
+    }
+}
+
+# Function to run multiple agents sequentially
+function Invoke-AgentQueue {
+    param(
+        [string]$AgentsString,
+        [string]$ErrorMode
+    )
+    
+    # Create output directory
+    $timestamp = Get-Date -Format "yyyy-MM-dd_HHmmss"
+    $outputBaseDir = Join-Path $env:USERPROFILE ".copilot-cli-automation\runs"
+    $outputDir = Join-Path $outputBaseDir $timestamp
+    New-Item -ItemType Directory -Path $outputDir -Force | Out-Null
+    
+    # Parse and validate agents
+    $agents = Test-AgentList -AgentsString $AgentsString
+    if (-not $agents) {
+        return $false
+    }
+    
+    $totalAgents = $agents.Count
+    
+    if ($totalAgents -eq 0) {
+        Write-Host "Error: No agents specified" -ForegroundColor Red
+        return $false
+    }
+    
+    Write-Host ""
+    Write-Host "===== Multi-Agent Execution =====" -ForegroundColor Cyan
+    Write-Host "Agents to run: $($agents -join ', ')"
+    Write-Host "Error mode: $ErrorMode"
+    Write-Host "Output directory: $outputDir"
+    Write-Host "=================================" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Track results
+    $passed = 0
+    $failed = 0
+    $results = @()
+    $startTotal = Get-Date
+    
+    # Run each agent
+    $index = 1
+    foreach ($agentName in $agents) {
+        $status = "PASSED"
+        
+        $result = Invoke-SingleAgent -AgentName $agentName -AgentIndex $index -TotalAgents $totalAgents -OutputDir $outputDir
+        
+        if ($result.Success) {
+            $passed++
+        } else {
+            $failed++
+            $status = "FAILED"
+            
+            if ($ErrorMode -eq "stop") {
+                Write-Host ""
+                Write-Host "Error mode is 'stop'. Aborting remaining agents." -ForegroundColor Yellow
+                break
+            }
+        }
+        
+        $results += @{
+            Name = $agentName
+            Status = $status
+            Duration = $result.Duration
+        }
+        
+        $index++
+    }
+    
+    $endTotal = Get-Date
+    $totalDuration = [int]($endTotal - $startTotal).TotalSeconds
+    
+    # Generate summary
+    Write-Host ""
+    Write-Host "===== Multi-Agent Run Summary =====" -ForegroundColor Cyan
+    Write-Host "Total agents: $totalAgents | Passed: $passed | Failed: $failed"
+    Write-Host "Total duration: ${totalDuration}s"
+    Write-Host ""
+    
+    # Print individual results
+    foreach ($r in $results) {
+        $color = if ($r.Status -eq "PASSED") { "Green" } else { "Red" }
+        Write-Host ("  {0,-25} [{1}] ({2}s)" -f $r.Name, $r.Status, $r.Duration) -ForegroundColor $color
+    }
+    
+    Write-Host ""
+    Write-Host "Outputs saved to: $outputDir" -ForegroundColor Gray
+    Write-Host "====================================" -ForegroundColor Cyan
+    
+    # Save summary to file
+    $summaryContent = @"
+# Multi-Agent Run Summary
+## $(Get-Date -Format 'o')
+
+- **Total agents:** $totalAgents
+- **Passed:** $passed
+- **Failed:** $failed
+- **Total duration:** ${totalDuration}s
+- **Error mode:** $ErrorMode
+
+## Results
+
+"@
+    foreach ($r in $results) {
+        $summaryContent += "- **$($r.Name)**: $($r.Status) ($($r.Duration)s)`n"
+    }
+    
+    $summaryContent | Out-File -FilePath (Join-Path $outputDir "SUMMARY.md") -Encoding utf8
+    
+    # Return failure if any agent failed
+    return ($failed -eq 0)
 }
 
 # Function to load configuration from properties file
@@ -276,6 +1484,55 @@ function Load-Config {
         }
         if ($config.ContainsKey("timeout.minutes") -and $script:TimeoutMinutes -eq 30) {
             $script:TimeoutMinutes = [int]$config["timeout.minutes"]
+        }
+        
+        # New: Prompt repository options
+        if ($config.ContainsKey("use.prompt") -and [string]::IsNullOrEmpty($script:UsePrompt)) {
+            $script:UsePrompt = $config["use.prompt"]
+        }
+        if ($config.ContainsKey("default.prompt.repo") -and $script:DefaultPromptRepo -eq "github/awesome-copilot") {
+            $script:DefaultPromptRepo = $config["default.prompt.repo"]
+        }
+        if ($config.ContainsKey("prompt.cache.dir") -and [string]::IsNullOrEmpty($script:PromptCacheDir)) {
+            $script:PromptCacheDir = $config["prompt.cache.dir"]
+        }
+        
+        # New: CLI parity options
+        if ($config.ContainsKey("agent") -and [string]::IsNullOrEmpty($script:Agent)) {
+            $script:Agent = $config["agent"]
+        }
+        if ($config.ContainsKey("allow.all.urls") -and $script:AllowAllUrls -eq "false") {
+            $script:AllowAllUrls = Parse-Bool $config["allow.all.urls"]
+        }
+        if ($config.ContainsKey("allow.urls") -and [string]::IsNullOrEmpty($script:AllowUrls)) {
+            $script:AllowUrls = $config["allow.urls"]
+        }
+        if ($config.ContainsKey("deny.urls") -and [string]::IsNullOrEmpty($script:DenyUrls)) {
+            $script:DenyUrls = $config["deny.urls"]
+        }
+        if ($config.ContainsKey("available.tools") -and [string]::IsNullOrEmpty($script:AvailableTools)) {
+            $script:AvailableTools = $config["available.tools"]
+        }
+        if ($config.ContainsKey("excluded.tools") -and [string]::IsNullOrEmpty($script:ExcludedTools)) {
+            $script:ExcludedTools = $config["excluded.tools"]
+        }
+        if ($config.ContainsKey("add.github.mcp.tool") -and [string]::IsNullOrEmpty($script:AddGitHubMcpTool)) {
+            $script:AddGitHubMcpTool = $config["add.github.mcp.tool"]
+        }
+        if ($config.ContainsKey("add.github.mcp.toolset") -and [string]::IsNullOrEmpty($script:AddGitHubMcpToolset)) {
+            $script:AddGitHubMcpToolset = $config["add.github.mcp.toolset"]
+        }
+        if ($config.ContainsKey("no.ask.user") -and $script:NoAskUser -eq "false") {
+            $script:NoAskUser = Parse-Bool $config["no.ask.user"]
+        }
+        if ($config.ContainsKey("config.dir") -and [string]::IsNullOrEmpty($script:ConfigDir)) {
+            $script:ConfigDir = $config["config.dir"]
+        }
+        if ($config.ContainsKey("share") -and [string]::IsNullOrEmpty($script:Share)) {
+            $script:Share = $config["share"]
+        }
+        if ($config.ContainsKey("resume") -and [string]::IsNullOrEmpty($script:Resume)) {
+            $script:Resume = $config["resume"]
         }
     } else {
         Write-Log "Configuration file $ConfigFile not found, using defaults"
@@ -389,13 +1646,41 @@ function Build-CopilotCommand {
         $cmd += " --model $Model"
     }
     
+    # Add agent if specified
+    if (-not [string]::IsNullOrEmpty($Agent)) {
+        $cmd += " --agent `"$Agent`""
+    }
+    
     # Add tool permissions
     if ($AllowAllTools -eq "true") {
         $cmd += " --allow-all-tools"
     }
     
-    # Always add --allow-all-paths flag
-    $cmd += " --allow-all-paths"
+    # Add --allow-all-paths flag only if explicitly enabled (FIXED: was always adding this)
+    if ($AllowAllPaths -eq "true") {
+        $cmd += " --allow-all-paths"
+    }
+    
+    # Add URL permissions
+    if ($AllowAllUrls -eq "true") {
+        $cmd += " --allow-all-urls"
+    }
+    
+    # Add allowed URLs
+    if (-not [string]::IsNullOrEmpty($AllowUrls)) {
+        $urls = $AllowUrls -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($url in $urls) {
+            $cmd += " --allow-url `"$url`""
+        }
+    }
+    
+    # Add denied URLs
+    if (-not [string]::IsNullOrEmpty($DenyUrls)) {
+        $urls = $DenyUrls -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($url in $urls) {
+            $cmd += " --deny-url `"$url`""
+        }
+    }
     
     # Add allowed tools
     if (-not [string]::IsNullOrEmpty($AllowedTools)) {
@@ -413,6 +1698,22 @@ function Build-CopilotCommand {
         }
     }
     
+    # Add available tools (limit which tools are available)
+    if (-not [string]::IsNullOrEmpty($AvailableTools)) {
+        $tools = $AvailableTools -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($tool in $tools) {
+            $cmd += " --available-tools `"$tool`""
+        }
+    }
+    
+    # Add excluded tools
+    if (-not [string]::IsNullOrEmpty($ExcludedTools)) {
+        $tools = $ExcludedTools -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($tool in $tools) {
+            $cmd += " --excluded-tools `"$tool`""
+        }
+    }
+    
     # Add additional directories
     if (-not [string]::IsNullOrEmpty($AdditionalDirectories)) {
         $dirs = $AdditionalDirectories -split ',' | ForEach-Object { $_.Trim() }
@@ -425,6 +1726,20 @@ function Build-CopilotCommand {
     if (-not [string]::IsNullOrEmpty($McpConfigFile)) {
         $resolvedMcpConfigFile = Resolve-FilePath -FilePath $McpConfigFile
         if (-not (Test-Path $resolvedMcpConfigFile)) {
+            Write-Host "Error: MCP configuration file not found: $McpConfigFile" -ForegroundColor Red
+            
+            # Find similar JSON files
+            $directory = Split-Path $resolvedMcpConfigFile -Parent
+            if ([string]::IsNullOrEmpty($directory)) { $directory = $ScriptDir }
+            $jsonFiles = Get-ChildItem -Path $directory -Filter "*.json" -ErrorAction SilentlyContinue | Select-Object -First 5
+            if ($jsonFiles) {
+                Write-Host ""
+                Write-Host "Available .json files in directory:" -ForegroundColor Yellow
+                foreach ($file in $jsonFiles) {
+                    Write-Host "  - $($file.Name)" -ForegroundColor Cyan
+                }
+            }
+            Write-Host ""
             throw "MCP configuration file '$McpConfigFile' not found"
         }
         $cmd += " --additional-mcp-config @$resolvedMcpConfigFile"
@@ -447,12 +1762,58 @@ function Build-CopilotCommand {
         $cmd += " --enable-all-github-mcp-tools"
     }
     
+    # Add GitHub MCP tools
+    if (-not [string]::IsNullOrEmpty($AddGitHubMcpTool)) {
+        $tools = $AddGitHubMcpTool -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($tool in $tools) {
+            $cmd += " --add-github-mcp-tool `"$tool`""
+        }
+    }
+    
+    # Add GitHub MCP toolsets
+    if (-not [string]::IsNullOrEmpty($AddGitHubMcpToolset)) {
+        $toolsets = $AddGitHubMcpToolset -split ',' | ForEach-Object { $_.Trim() }
+        foreach ($toolset in $toolsets) {
+            $cmd += " --add-github-mcp-toolset `"$toolset`""
+        }
+    }
+    
     # Add disabled MCP servers
     if (-not [string]::IsNullOrEmpty($DisableMcpServers)) {
         $servers = $DisableMcpServers -split ',' | ForEach-Object { $_.Trim() }
         foreach ($server in $servers) {
             $cmd += " --disable-mcp-server `"$server`""
         }
+    }
+    
+    # Add autonomous mode (no ask user)
+    if ($NoAskUser -eq "true") {
+        $cmd += " --no-ask-user"
+    }
+    
+    # Add config directory
+    if (-not [string]::IsNullOrEmpty($ConfigDir)) {
+        $cmd += " --config-dir `"$ConfigDir`""
+    }
+    
+    # Add session resume options
+    if ($Continue) {
+        $cmd += " --continue"
+    } elseif (-not [string]::IsNullOrEmpty($Resume)) {
+        $cmd += " --resume `"$Resume`""
+    }
+    
+    # Add share options
+    if (-not [string]::IsNullOrEmpty($Share)) {
+        $cmd += " --share `"$Share`""
+    }
+    if ($ShareGist) {
+        $cmd += " --share-gist"
+    }
+    
+    # Add silent mode
+    if ($Silent) {
+        $cmd += " --silent"
     }
     
     # Add log level
@@ -485,8 +1846,144 @@ try {
         exit 0
     }
     
+    # Handle -Init command
+    if ($Init) {
+        Initialize-CopilotCliProject
+        exit 0
+    }
+    
+    # Handle -ListAgents command
+    if ($ListAgents) {
+        Show-BuiltInAgents
+        exit 0
+    }
+    
+    # Handle -Diagnose command
+    if ($Diagnose) {
+        Show-DiagnosticStatus
+        exit 0
+    }
+    
+    # Check for mutual exclusivity of -Agent and -Agents
+    if (-not [string]::IsNullOrEmpty($Agent) -and -not [string]::IsNullOrEmpty($Agents)) {
+        Write-Host "Error: Cannot use both -Agent and -Agents together." -ForegroundColor Red
+        Write-Host "Use -Agent for a single agent, or -Agents for multiple agents." -ForegroundColor Yellow
+        exit 1
+    }
+    
+    # Handle -Agents: run multiple agents sequentially
+    if (-not [string]::IsNullOrEmpty($Agents)) {
+        # Setup dependencies and auth first
+        Test-Dependencies
+        Set-GitHubAuth
+        
+        # Run the agent queue
+        if (Invoke-AgentQueue -AgentsString $Agents -ErrorMode $AgentErrorMode) {
+            exit 0
+        } else {
+            exit 1
+        }
+    }
+    
+    # Handle -Agent: check if it's a built-in agent first
+    if (-not [string]::IsNullOrEmpty($Agent)) {
+        $builtInConfig = Get-BuiltInAgentConfig -AgentName $Agent
+        if ($builtInConfig) {
+            Write-Host "Using built-in agent: $Agent" -ForegroundColor Cyan
+            
+            # Load the agent's properties file if it exists
+            if ($builtInConfig.PropertiesFile) {
+                $Config = $builtInConfig.PropertiesFile
+            }
+            
+            # Set prompt files if not already set
+            if ([string]::IsNullOrEmpty($PromptFile) -and $builtInConfig.UserPromptFile) {
+                $PromptFile = $builtInConfig.UserPromptFile
+            }
+            if ([string]::IsNullOrEmpty($SystemPromptFile) -and $builtInConfig.SystemPromptFile) {
+                $SystemPromptFile = $builtInConfig.SystemPromptFile
+            }
+            
+            # Clear the Agent variable so it doesn't get passed to copilot CLI
+            # (built-in agents are handled via config/prompts, not --agent flag)
+            $Agent = ""
+        }
+    }
+    
     # Load configuration file
     Load-Config -ConfigFile $Config
+    
+    # Setup GitHub authentication early (needed for API calls)
+    Set-GitHubAuth
+    
+    # Handle -ListPrompts command
+    if ($ListPrompts) {
+        $prompts = Get-PromptList -RepoReference $DefaultPromptRepo
+        Show-PromptList -Prompts $prompts
+        exit 0
+    }
+    
+    # Handle -SearchPrompts command
+    if (-not [string]::IsNullOrEmpty($SearchPrompts)) {
+        $results = Search-Prompts -Query $SearchPrompts
+        Show-PromptList -Prompts $results
+        exit 0
+    }
+    
+    # Handle -PromptInfo command
+    if (-not [string]::IsNullOrEmpty($PromptInfo)) {
+        Show-PromptInfo -PromptReference $PromptInfo
+        exit 0
+    }
+    
+    # Handle -UpdatePromptCache command
+    if ($UpdatePromptCache) {
+        Write-Host "Updating prompt cache..." -ForegroundColor Cyan
+        $prompts = Get-PromptList -RepoReference $DefaultPromptRepo
+        foreach ($prompt in $prompts) {
+            try {
+                $null = Get-RemotePrompt -PromptReference $prompt.Name -ForceRefresh
+                Write-Host "  Cached: $($prompt.Name)" -ForegroundColor Green
+            } catch {
+                Write-Host "  Failed: $($prompt.Name) - $($_.Exception.Message)" -ForegroundColor Red
+            }
+        }
+        Write-Host "Cache update complete." -ForegroundColor Green
+        exit 0
+    }
+    
+    # Handle -UsePrompt: fetch prompt from remote repository
+    if (-not [string]::IsNullOrEmpty($UsePrompt)) {
+        Write-Log "Fetching prompt: $UsePrompt"
+        $promptContent = Get-RemotePrompt -PromptReference $UsePrompt
+        $parsedPrompt = Parse-PromptFrontmatter -Content $promptContent
+        
+        # Use the prompt body as the main prompt
+        if ([string]::IsNullOrEmpty($Prompt)) {
+            $Prompt = $parsedPrompt.Body
+        }
+        
+        # If the prompt specifies an agent and we don't have one, use it
+        if ([string]::IsNullOrEmpty($Agent) -and -not [string]::IsNullOrEmpty($parsedPrompt.Agent)) {
+            $Agent = $parsedPrompt.Agent
+            Write-Log "Using agent from prompt: $Agent"
+        }
+        
+        # If the prompt specifies tools and we have none configured, suggest them
+        if ($parsedPrompt.Tools.Count -gt 0 -and [string]::IsNullOrEmpty($AllowedTools)) {
+            Write-Log "Prompt recommends tools: $($parsedPrompt.Tools -join ', ')"
+        }
+    }
+    
+    # Handle -UseDefaults: use built-in default prompt files
+    if ($UseDefaults) {
+        Write-Host "Using built-in default prompts" -ForegroundColor Cyan
+        $PromptFile = "user.prompt.md"
+        $SystemPromptFile = "system.prompt.md"
+        # Clear any inline prompts to force loading from files
+        $Prompt = ""
+        $SystemPrompt = ""
+    }
     
     # Load prompts from files if specified (command line params override)
     # Load prompt from file if PromptFile is specified and Prompt is empty
@@ -501,9 +1998,32 @@ try {
         $SystemPrompt = Load-FileContent -FilePath $resolvedSystemPromptFile -ContentType "System prompt"
     }
     
+    # Validate that prompts have meaningful content (not just comments)
+    if (-not [string]::IsNullOrEmpty($Prompt)) {
+        $null = Test-PromptHasContent -Content $Prompt -ContentType "User prompt"
+    }
+    if (-not [string]::IsNullOrEmpty($SystemPrompt)) {
+        $null = Test-PromptHasContent -Content $SystemPrompt -ContentType "System prompt"
+    }
+    
     # Validate required parameters
     if ([string]::IsNullOrEmpty($Prompt)) {
-        throw "Prompt is required. Use -Prompt parameter, -PromptFile parameter, or set prompt/prompt.file in config file."
+        Write-Host ""
+        Write-Host "GitHub Copilot CLI Wrapper - No prompt specified" -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "Quick Start:" -ForegroundColor Cyan
+        Write-Host "  .\copilot-cli.ps1 -Prompt `"Your task here`""
+        Write-Host "  .\copilot-cli.ps1 -UsePrompt code-review"
+        Write-Host "  .\copilot-cli.ps1 -UseDefaults               # Use built-in default prompts"
+        Write-Host "  .\copilot-cli.ps1 -Init                      # Create starter config"
+        Write-Host ""
+        Write-Host "Discover Prompts:" -ForegroundColor Cyan
+        Write-Host "  .\copilot-cli.ps1 -ListPrompts              # List available prompts"
+        Write-Host "  .\copilot-cli.ps1 -SearchPrompts security   # Search prompts"
+        Write-Host "  .\copilot-cli.ps1 -PromptInfo code-review   # Show prompt details"
+        Write-Host ""
+        Write-Host "Use -Help for full documentation" -ForegroundColor Gray
+        exit 1
     }
     
     # Print current working directory
@@ -514,9 +2034,6 @@ try {
     
     # Check dependencies
     Test-Dependencies
-    
-    # Setup GitHub authentication
-    Set-GitHubAuth
     
     # Validate MCP configuration if provided
     if (-not [string]::IsNullOrEmpty($McpConfig)) {
@@ -601,7 +2118,43 @@ try {
     }
     
 } catch {
-    Write-Host "Error: $($_.Exception.Message)" -ForegroundColor Red
+    $errorMsg = $_.Exception.Message
+    Write-Host "Error: $errorMsg" -ForegroundColor Red
+    
+    # Provide actionable guidance based on error type
+    if ($errorMsg -match "Node\.js is not installed") {
+        Write-Host ""
+        Write-Host "Quick fix:" -ForegroundColor Yellow
+        Write-Host "  Install Node.js 20+ from: https://nodejs.org/" -ForegroundColor Cyan
+    } elseif ($errorMsg -match "Copilot CLI .* not installed|GitHub Copilot CLI is not installed") {
+        Write-Host ""
+        Write-Host "Quick fix:" -ForegroundColor Yellow
+        Write-Host "  npm install -g @github/copilot" -ForegroundColor Cyan
+    } elseif ($errorMsg -match "authentication|token|401|403") {
+        Write-Host ""
+        Write-Host "Quick fix:" -ForegroundColor Yellow
+        Write-Host "  gh auth login" -ForegroundColor Cyan
+        Write-Host "  Or set: `$env:GITHUB_TOKEN = 'ghp_...'" -ForegroundColor Cyan
+    } elseif ($errorMsg -match "timed out") {
+        Write-Host ""
+        Write-Host "The operation took too long. Consider:" -ForegroundColor Yellow
+        Write-Host "  - Increasing timeout: -TimeoutMinutes 60" -ForegroundColor Cyan
+        Write-Host "  - Simplifying the prompt" -ForegroundColor Cyan
+    } elseif ($errorMsg -match "exit code: (\d+)") {
+        $exitCode = $matches[1]
+        Write-Host ""
+        Write-Host "Copilot CLI exited with code $exitCode" -ForegroundColor Yellow
+        switch ($exitCode) {
+            "1" { Write-Host "  General error - check the output above for details" -ForegroundColor Cyan }
+            "2" { Write-Host "  Invalid arguments - check your command syntax" -ForegroundColor Cyan }
+            "126" { Write-Host "  Permission denied - check file permissions" -ForegroundColor Cyan }
+            "127" { Write-Host "  Command not found - ensure Copilot CLI is installed" -ForegroundColor Cyan }
+            default { Write-Host "  Unknown error - check the output above" -ForegroundColor Cyan }
+        }
+    }
+    
+    Write-Host ""
+    Write-Host "Run with -Diagnose to check all prerequisites" -ForegroundColor Gray
     exit 1
 } finally {
     # Restore original directory in case of errors

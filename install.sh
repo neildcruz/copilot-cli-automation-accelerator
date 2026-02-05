@@ -32,23 +32,157 @@ print_step() { echo -e "${BLUE}→ $1${NC}" >&2; }
 
 # Check GitHub authentication
 check_github_authentication() {
-    print_step "Checking GitHub authentication..."
+    local silent="${1:-false}"
     
-    # Check for GitHub token in environment
+    if [[ "$silent" != "true" ]]; then
+        print_step "Checking GitHub authentication..."
+    fi
+    
+    # Track which auth sources are available
+    AUTH_GITHUB_TOKEN="false"
+    AUTH_GH_TOKEN="false"
+    AUTH_COPILOT_TOKEN="false"
+    AUTH_GH_CLI="false"
+    AUTH_SOURCE=""
+    
+    # Check for GITHUB_TOKEN environment variable
     if [[ -n "$GITHUB_TOKEN" ]]; then
-        print_success "GitHub token found in environment variable"
-        return 0
+        AUTH_GITHUB_TOKEN="true"
+        AUTH_SOURCE="GITHUB_TOKEN environment variable"
+        if [[ "$silent" != "true" ]]; then
+            print_success "GitHub token found in GITHUB_TOKEN environment variable"
+        fi
+    fi
+    
+    # Check for GH_TOKEN environment variable
+    if [[ -n "$GH_TOKEN" ]]; then
+        AUTH_GH_TOKEN="true"
+        if [[ -z "$AUTH_SOURCE" ]]; then
+            AUTH_SOURCE="GH_TOKEN environment variable"
+        fi
+    fi
+    
+    # Check for COPILOT_GITHUB_TOKEN environment variable
+    if [[ -n "$COPILOT_GITHUB_TOKEN" ]]; then
+        AUTH_COPILOT_TOKEN="true"
+        if [[ -z "$AUTH_SOURCE" ]]; then
+            AUTH_SOURCE="COPILOT_GITHUB_TOKEN environment variable"
+        fi
     fi
     
     # Check for GitHub CLI authentication
     if command -v gh >/dev/null 2>&1; then
         if gh auth token >/dev/null 2>&1; then
-            print_success "GitHub CLI authentication found"
-            return 0
+            AUTH_GH_CLI="true"
+            if [[ -z "$AUTH_SOURCE" ]]; then
+                AUTH_SOURCE="GitHub CLI (gh auth)"
+                if [[ "$silent" != "true" ]]; then
+                    print_success "GitHub CLI authentication found"
+                fi
+            fi
         fi
     fi
     
+    # Return 0 if any auth source is available
+    if [[ -n "$AUTH_SOURCE" ]]; then
+        return 0
+    fi
     return 1
+}
+
+# Show authentication status with detailed info
+show_authentication_status() {
+    echo ""
+    echo -e "${CYAN}AUTHENTICATION STATUS:${NC}"
+    echo ""
+    
+    if [[ "$AUTH_GITHUB_TOKEN" == "true" ]]; then
+        echo -e "  ${GREEN}\u2713 GITHUB_TOKEN:          ${NC}Set (${#GITHUB_TOKEN} chars)"
+    else
+        echo -e "  ${RED}\u2717 GITHUB_TOKEN:          ${NC}Not set"
+    fi
+    
+    if [[ "$AUTH_GH_TOKEN" == "true" ]]; then
+        echo -e "  ${GREEN}\u2713 GH_TOKEN:              ${NC}Set (${#GH_TOKEN} chars)"
+    else
+        echo -e "  ${RED}\u2717 GH_TOKEN:              ${NC}Not set"
+    fi
+    
+    if [[ "$AUTH_COPILOT_TOKEN" == "true" ]]; then
+        echo -e "  ${GREEN}\u2713 COPILOT_GITHUB_TOKEN:  ${NC}Set"
+    else
+        echo -e "  ${RED}\u2717 COPILOT_GITHUB_TOKEN:  ${NC}Not set"
+    fi
+    
+    if [[ "$AUTH_GH_CLI" == "true" ]]; then
+        echo -e "  ${GREEN}\u2713 GitHub CLI (gh):       ${NC}Authenticated"
+    else
+        echo -e "  ${RED}\u2717 GitHub CLI (gh):       ${NC}Not authenticated"
+    fi
+    
+    echo ""
+}
+
+# Show authentication help
+show_authentication_help() {
+    echo -e "${YELLOW}Quick fix (choose one):${NC}"
+    echo -e "  1. Set token:     ${CYAN}export GITHUB_TOKEN='ghp_...'${NC}"
+    echo -e "  2. Login via CLI: ${CYAN}gh auth login${NC}"
+    echo -e "  3. Create token:  ${CYAN}https://github.com/settings/tokens/new${NC}"
+    echo ""
+    echo -e "Minimum token permissions needed: ${YELLOW}repo (read)${NC}"
+    echo ""
+}
+
+# Get HTTP error message with actionable help
+get_http_error_message() {
+    local status_code="$1"
+    local url="$2"
+    
+    case "$status_code" in
+        401)
+            HTTP_ERROR_MSG="Authentication required (HTTP 401)"
+            HTTP_ERROR_HELP="Your token may be invalid or expired|Generate a new token at: https://github.com/settings/tokens/new|Ensure the token has 'repo' scope for private repositories"
+            ;;
+        403)
+            HTTP_ERROR_MSG="Access forbidden (HTTP 403)"
+            HTTP_ERROR_HELP="You may have hit the GitHub API rate limit|Your token may lack required permissions|Try authenticating: gh auth login|Or wait a few minutes and try again"
+            ;;
+        404)
+            HTTP_ERROR_MSG="File not found (HTTP 404)"
+            HTTP_ERROR_HELP="Check that the repository URL is correct: $url|Verify the branch name (current: $BRANCH)|Ensure the file exists in the repository"
+            ;;
+        5[0-9][0-9])
+            HTTP_ERROR_MSG="GitHub server error (HTTP $status_code)"
+            HTTP_ERROR_HELP="This is a temporary GitHub issue|Wait a few minutes and try again|Check GitHub status: https://www.githubstatus.com/"
+            ;;
+        0)
+            HTTP_ERROR_MSG="Connection timed out or network error"
+            HTTP_ERROR_HELP="Check your internet connection|If behind a proxy, set HTTP_PROXY and HTTPS_PROXY|Try: curl -I https://raw.githubusercontent.com"
+            ;;
+        *)
+            HTTP_ERROR_MSG="HTTP error (status code: $status_code)"
+            HTTP_ERROR_HELP="Unexpected error occurred|Check your network connection and try again"
+            ;;
+    esac
+}
+
+# Print HTTP error with help
+print_http_error() {
+    local error_msg="$1"
+    local error_help="$2"
+    
+    echo ""
+    print_error "$error_msg"
+    echo ""
+    echo -e "${YELLOW}Troubleshooting:${NC}"
+    
+    # Split help by | and print each line
+    IFS='|' read -ra HELP_LINES <<< "$error_help"
+    for line in "${HELP_LINES[@]}"; do
+        echo -e "  - $line"
+    done
+    echo ""
 }
 
 # Check repository visibility
@@ -250,6 +384,39 @@ declare -a FILES_TO_DOWNLOAD=(
     "automation/copilot-cli.properties:required"
     "automation/user.prompt.md:optional"
     "automation/system.prompt.md:optional"
+    # Example agents
+    "automation/examples/README.md:optional"
+    "automation/examples/mcp-config.json:optional"
+    # Code Review Agent
+    "automation/examples/code-review/copilot-cli.properties:optional"
+    "automation/examples/code-review/user.prompt.md:optional"
+    "automation/examples/code-review/system.prompt.md:optional"
+    "automation/examples/code-review/description.txt:optional"
+    # Security Analysis Agent
+    "automation/examples/security-analysis/copilot-cli.properties:optional"
+    "automation/examples/security-analysis/user.prompt.md:optional"
+    "automation/examples/security-analysis/system.prompt.md:optional"
+    "automation/examples/security-analysis/description.txt:optional"
+    # Test Generation Agent
+    "automation/examples/test-generation/copilot-cli.properties:optional"
+    "automation/examples/test-generation/user.prompt.md:optional"
+    "automation/examples/test-generation/system.prompt.md:optional"
+    "automation/examples/test-generation/description.txt:optional"
+    # Documentation Generation Agent
+    "automation/examples/documentation-generation/copilot-cli.properties:optional"
+    "automation/examples/documentation-generation/user.prompt.md:optional"
+    "automation/examples/documentation-generation/system.prompt.md:optional"
+    "automation/examples/documentation-generation/description.txt:optional"
+    # Refactoring Agent
+    "automation/examples/refactoring/copilot-cli.properties:optional"
+    "automation/examples/refactoring/user.prompt.md:optional"
+    "automation/examples/refactoring/system.prompt.md:optional"
+    "automation/examples/refactoring/description.txt:optional"
+    # CI/CD Analysis Agent
+    "automation/examples/cicd-analysis/copilot-cli.properties:optional"
+    "automation/examples/cicd-analysis/user.prompt.md:optional"
+    "automation/examples/cicd-analysis/system.prompt.md:optional"
+    "automation/examples/cicd-analysis/description.txt:optional"
 )
 
 # Check prerequisites
@@ -274,12 +441,35 @@ check_prerequisites() {
     # Check internet connectivity
     if command -v curl >/dev/null 2>&1; then
         if ! curl -s --connect-timeout 10 https://api.github.com >/dev/null; then
-            print_error "Unable to connect to GitHub API. Check your internet connection."
+            print_error "Unable to connect to GitHub API."
+            echo ""
+            echo -e "${YELLOW}TROUBLESHOOTING:${NC}"
+            echo -e "  1. Check your internet connection"
+            echo -e "  2. If behind a proxy, set:"
+            echo -e "     ${CYAN}export HTTP_PROXY='http://proxy:port'${NC}"
+            echo -e "     ${CYAN}export HTTPS_PROXY='http://proxy:port'${NC}"
+            echo -e "  3. If firewall is blocking, allow access to:"
+            echo -e "     - api.github.com"
+            echo -e "     - raw.githubusercontent.com"
+            echo -e "  4. Try: ${CYAN}curl -I https://api.github.com${NC}"
+            echo ""
+            
+            # Check proxy settings
+            if [[ -n "$HTTP_PROXY" ]] || [[ -n "$HTTPS_PROXY" ]]; then
+                echo -e "Current proxy settings:"
+                [[ -n "$HTTP_PROXY" ]] && echo -e "  HTTP_PROXY:  $HTTP_PROXY"
+                [[ -n "$HTTPS_PROXY" ]] && echo -e "  HTTPS_PROXY: $HTTPS_PROXY"
+            fi
             exit 1
         fi
     elif command -v wget >/dev/null 2>&1; then
         if ! wget --spider --timeout=10 https://api.github.com >/dev/null 2>&1; then
-            print_error "Unable to connect to GitHub API. Check your internet connection."
+            print_error "Unable to connect to GitHub API."
+            echo ""
+            echo -e "${YELLOW}TROUBLESHOOTING:${NC}"
+            echo -e "  1. Check your internet connection"
+            echo -e "  2. If behind a proxy, set HTTP_PROXY and HTTPS_PROXY"
+            echo -e "  3. Try: ${CYAN}wget --spider https://api.github.com${NC}"
             exit 1
         fi
     fi
@@ -292,13 +482,11 @@ check_prerequisites() {
     if [[ "$repo_visibility" == "private" ]]; then
         print_info "Repository is private - authentication required"
         
-        # Check for authentication
-        if ! check_github_authentication; then
+        # Check for authentication with detailed status
+        if ! check_github_authentication "false"; then
             print_error "Private repository requires GitHub authentication."
-            print_info "Please set up authentication using one of these methods:"
-            print_info "  1. Set environment variable: export GITHUB_TOKEN='your_token'"
-            print_info "  2. Use GitHub CLI: gh auth login"
-            print_info "  3. Create token at: https://github.com/settings/personal-access-tokens/new"
+            show_authentication_status
+            show_authentication_help
             exit 1
         fi
     else
@@ -382,24 +570,42 @@ download_file() {
     if [[ -n "$token" ]]; then
         auth_headers=(-H "Authorization: Bearer $token")
     elif [[ "$is_private" == "private" ]]; then
+        check_github_authentication "true"
         print_error "No GitHub token found for private repository access"
+        show_authentication_status
+        show_authentication_help
         return 1
     fi
     
-    # Download file using curl or wget
-    local success=false
+    # Download file using curl or wget with status code capture
+    local success=1
+    local http_code=0
     
     if command -v curl >/dev/null 2>&1; then
-        if [[ "$VERBOSE" == true ]]; then
-            curl -fsSL --connect-timeout 30 --max-time 60 "${auth_headers[@]}" "$url" -o "$destination_path"
+        # Use curl with status code capture
+        local temp_file=$(mktemp)
+        http_code=$(curl -fsSL --connect-timeout 30 --max-time 60 \
+            "${auth_headers[@]}" "$url" \
+            -o "$destination_path" \
+            -w "%{http_code}" 2>"$temp_file") || true
+        
+        # Check if successful (2xx status)
+        if [[ "$http_code" =~ ^2[0-9][0-9]$ ]] && [[ -f "$destination_path" ]]; then
+            success=0
         else
-            curl -fsSL --connect-timeout 30 --max-time 60 "${auth_headers[@]}" "$url" -o "$destination_path" 2>/dev/null
+            # Read any error from temp file
+            local curl_error=$(cat "$temp_file" 2>/dev/null)
+            rm -f "$temp_file"
+            
+            # Handle connection errors
+            if [[ -z "$http_code" ]] || [[ "$http_code" == "000" ]]; then
+                http_code=0
+            fi
         fi
-        success=$?
+        rm -f "$temp_file"
     elif command -v wget >/dev/null 2>&1; then
         local auth_header=""
         if [[ ${#auth_headers[@]} -gt 0 ]]; then
-            # Extract token from auth_headers array
             for header in "${auth_headers[@]}"; do
                 if [[ "$header" == "Authorization: Bearer "* ]]; then
                     auth_header="--header=$header"
@@ -408,23 +614,38 @@ download_file() {
             done
         fi
         
-        if [[ "$VERBOSE" == true ]]; then
-            wget --timeout=30 --tries=3 $auth_header "$url" -O "$destination_path"
+        # wget doesn't easily return status codes, check via exit code
+        if wget --timeout=30 --tries=3 $auth_header "$url" -O "$destination_path" >/dev/null 2>&1; then
+            success=0
+            http_code=200
         else
-            wget --timeout=30 --tries=3 $auth_header "$url" -O "$destination_path" >/dev/null 2>&1
+            # Try to determine error type from exit code
+            local wget_exit=$?
+            case $wget_exit in
+                3) http_code=0 ;;   # File I/O error
+                4) http_code=0 ;;   # Network failure
+                5) http_code=403 ;; # SSL verification failure
+                6) http_code=401 ;; # Authentication required
+                7) http_code=500 ;; # Protocol error
+                8) http_code=404 ;; # Server issued error (usually 404)
+                *) http_code=0 ;;
+            esac
         fi
-        success=$?
     fi
     
     if [[ $success -eq 0 ]]; then
         print_success "Downloaded: $file_path"
         return 0
     else
+        # Get actionable error message
+        get_http_error_message "$http_code" "$url"
+        
         if [[ "$is_required" == "required" ]]; then
             print_error "Failed to download required file: $file_path"
+            print_http_error "$HTTP_ERROR_MSG" "$HTTP_ERROR_HELP"
             return 1
         else
-            print_warning "Failed to download optional file: $file_path"
+            print_warning "Failed to download optional file: $file_path ($HTTP_ERROR_MSG)"
             return 0
         fi
     fi

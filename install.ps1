@@ -73,27 +73,151 @@ function Confirm-Action {
 }
 
 function Test-GitHubAuthentication {
-    Write-Step "Checking GitHub authentication..."
+    param(
+        [switch]$Silent,
+        [switch]$ReturnStatus
+    )
     
-    # Check for GitHub token in environment
+    if (-not $Silent) {
+        Write-Step "Checking GitHub authentication..."
+    }
+    
+    $status = @{
+        HasAuth = $false
+        Source = $null
+        TokenSet = @{
+            GITHUB_TOKEN = $false
+            GH_TOKEN = $false
+            COPILOT_GITHUB_TOKEN = $false
+            GH_CLI = $false
+        }
+        TokenLength = 0
+    }
+    
+    # Check for GITHUB_TOKEN environment variable
     if ($env:GITHUB_TOKEN) {
-        Write-Success "GitHub token found in environment variable"
-        return $true
+        $status.TokenSet.GITHUB_TOKEN = $true
+        $status.HasAuth = $true
+        $status.Source = "GITHUB_TOKEN environment variable"
+        $status.TokenLength = $env:GITHUB_TOKEN.Length
+        if (-not $Silent) {
+            Write-Success "GitHub token found in GITHUB_TOKEN environment variable"
+        }
+    }
+    
+    # Check for GH_TOKEN environment variable
+    if ($env:GH_TOKEN) {
+        $status.TokenSet.GH_TOKEN = $true
+        if (-not $status.HasAuth) {
+            $status.HasAuth = $true
+            $status.Source = "GH_TOKEN environment variable"
+            $status.TokenLength = $env:GH_TOKEN.Length
+            if (-not $Silent) {
+                Write-Success "GitHub token found in GH_TOKEN environment variable"
+            }
+        }
+    }
+    
+    # Check for COPILOT_GITHUB_TOKEN environment variable
+    if ($env:COPILOT_GITHUB_TOKEN) {
+        $status.TokenSet.COPILOT_GITHUB_TOKEN = $true
+        if (-not $status.HasAuth) {
+            $status.HasAuth = $true
+            $status.Source = "COPILOT_GITHUB_TOKEN environment variable"
+            $status.TokenLength = $env:COPILOT_GITHUB_TOKEN.Length
+        }
     }
     
     # Check for GitHub CLI authentication
     try {
         $token = & gh auth token 2>$null
-        if ($token) {
-            Write-Success "GitHub CLI authentication found"
-            return $true
+        if ($token -and $LASTEXITCODE -eq 0) {
+            $status.TokenSet.GH_CLI = $true
+            if (-not $status.HasAuth) {
+                $status.HasAuth = $true
+                $status.Source = "GitHub CLI (gh auth)"
+                $status.TokenLength = $token.Length
+                if (-not $Silent) {
+                    Write-Success "GitHub CLI authentication found"
+                }
+            }
         }
     }
     catch {
         # GitHub CLI not available or not authenticated
     }
     
-    return $false
+    if ($ReturnStatus) {
+        return $status
+    }
+    return $status.HasAuth
+}
+
+function Show-AuthenticationStatus {
+    <#
+    .SYNOPSIS
+        Display detailed authentication status with actionable guidance
+    #>
+    param(
+        [hashtable]$Status
+    )
+    
+    Write-Host ""
+    Write-Host "AUTHENTICATION STATUS:" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Show status of each authentication source
+    if ($Status.TokenSet.GITHUB_TOKEN) {
+        Write-Host "  ✓ GITHUB_TOKEN:          " -ForegroundColor Green -NoNewline
+        Write-Host "Set ($($env:GITHUB_TOKEN.Length) chars)" -ForegroundColor White
+    } else {
+        Write-Host "  ✗ GITHUB_TOKEN:          " -ForegroundColor Red -NoNewline
+        Write-Host "Not set" -ForegroundColor Gray
+    }
+    
+    if ($Status.TokenSet.GH_TOKEN) {
+        Write-Host "  ✓ GH_TOKEN:              " -ForegroundColor Green -NoNewline
+        Write-Host "Set ($($env:GH_TOKEN.Length) chars)" -ForegroundColor White
+    } else {
+        Write-Host "  ✗ GH_TOKEN:              " -ForegroundColor Red -NoNewline
+        Write-Host "Not set" -ForegroundColor Gray
+    }
+    
+    if ($Status.TokenSet.COPILOT_GITHUB_TOKEN) {
+        Write-Host "  ✓ COPILOT_GITHUB_TOKEN:  " -ForegroundColor Green -NoNewline
+        Write-Host "Set" -ForegroundColor White
+    } else {
+        Write-Host "  ✗ COPILOT_GITHUB_TOKEN:  " -ForegroundColor Red -NoNewline
+        Write-Host "Not set" -ForegroundColor Gray
+    }
+    
+    if ($Status.TokenSet.GH_CLI) {
+        Write-Host "  ✓ GitHub CLI (gh):       " -ForegroundColor Green -NoNewline
+        Write-Host "Authenticated" -ForegroundColor White
+    } else {
+        Write-Host "  ✗ GitHub CLI (gh):       " -ForegroundColor Red -NoNewline
+        Write-Host "Not authenticated" -ForegroundColor Gray
+    }
+    
+    Write-Host ""
+}
+
+function Show-AuthenticationHelp {
+    <#
+    .SYNOPSIS
+        Display actionable steps to fix authentication issues
+    #>
+    Write-Host "Quick fix (choose one):" -ForegroundColor Yellow
+    Write-Host "  1. Set token:     " -ForegroundColor White -NoNewline
+    Write-Host "`$env:GITHUB_TOKEN = 'ghp_...'" -ForegroundColor Cyan
+    Write-Host "  2. Login via CLI: " -ForegroundColor White -NoNewline
+    Write-Host "gh auth login" -ForegroundColor Cyan
+    Write-Host "  3. Create token:  " -ForegroundColor White -NoNewline
+    Write-Host "https://github.com/settings/tokens/new" -ForegroundColor Cyan
+    Write-Host ""
+    Write-Host "Minimum token permissions needed: " -ForegroundColor Gray -NoNewline
+    Write-Host "repo (read)" -ForegroundColor Yellow
+    Write-Host ""
 }
 
 function Test-NodeInstalled {
@@ -398,9 +522,43 @@ $FilesToDownload = @(
     @{ Path = "INDEX.md"; Required = $true },
     @{ Path = "automation/README.md"; Required = $true },
     @{ Path = "automation/copilot-cli.ps1"; Required = $true },
+    @{ Path = "automation/copilot-cli.sh"; Required = $true },
     @{ Path = "automation/copilot-cli.properties"; Required = $true },
     @{ Path = "automation/user.prompt.md"; Required = $false },
-    @{ Path = "automation/system.prompt.md"; Required = $false }
+    @{ Path = "automation/system.prompt.md"; Required = $false },
+    # Example agents
+    @{ Path = "automation/examples/README.md"; Required = $false },
+    @{ Path = "automation/examples/mcp-config.json"; Required = $false },
+    # Code Review Agent
+    @{ Path = "automation/examples/code-review/copilot-cli.properties"; Required = $false },
+    @{ Path = "automation/examples/code-review/user.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/code-review/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/code-review/description.txt"; Required = $false },
+    # Security Analysis Agent
+    @{ Path = "automation/examples/security-analysis/copilot-cli.properties"; Required = $false },
+    @{ Path = "automation/examples/security-analysis/user.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/security-analysis/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/security-analysis/description.txt"; Required = $false },
+    # Test Generation Agent
+    @{ Path = "automation/examples/test-generation/copilot-cli.properties"; Required = $false },
+    @{ Path = "automation/examples/test-generation/user.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/test-generation/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/test-generation/description.txt"; Required = $false },
+    # Documentation Generation Agent
+    @{ Path = "automation/examples/documentation-generation/copilot-cli.properties"; Required = $false },
+    @{ Path = "automation/examples/documentation-generation/user.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/documentation-generation/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/documentation-generation/description.txt"; Required = $false },
+    # Refactoring Agent
+    @{ Path = "automation/examples/refactoring/copilot-cli.properties"; Required = $false },
+    @{ Path = "automation/examples/refactoring/user.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/refactoring/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/refactoring/description.txt"; Required = $false },
+    # CI/CD Analysis Agent
+    @{ Path = "automation/examples/cicd-analysis/copilot-cli.properties"; Required = $false },
+    @{ Path = "automation/examples/cicd-analysis/user.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/cicd-analysis/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/cicd-analysis/description.txt"; Required = $false }
 )
 
 function Test-Prerequisites {
@@ -419,7 +577,25 @@ function Test-Prerequisites {
         Write-Success "Internet connectivity confirmed"
     }
     catch {
-        Write-Error "Unable to connect to GitHub API. Check your internet connection."
+        Write-Error "Unable to connect to GitHub API."
+        Write-Host ""
+        Write-Host "TROUBLESHOOTING:" -ForegroundColor Yellow
+        Write-Host "  1. Check your internet connection" -ForegroundColor White
+        Write-Host "  2. If behind a proxy, set:" -ForegroundColor White
+        Write-Host "     `$env:HTTP_PROXY = 'http://proxy:port'" -ForegroundColor Cyan
+        Write-Host "     `$env:HTTPS_PROXY = 'http://proxy:port'" -ForegroundColor Cyan
+        Write-Host "  3. If firewall is blocking, allow access to:" -ForegroundColor White
+        Write-Host "     - api.github.com" -ForegroundColor Cyan
+        Write-Host "     - raw.githubusercontent.com" -ForegroundColor Cyan
+        Write-Host "  4. Try: Test-NetConnection -ComputerName api.github.com -Port 443" -ForegroundColor White
+        Write-Host ""
+        
+        # Check proxy settings
+        if ($env:HTTP_PROXY -or $env:HTTPS_PROXY) {
+            Write-Host "Current proxy settings:" -ForegroundColor Gray
+            if ($env:HTTP_PROXY) { Write-Host "  HTTP_PROXY:  $($env:HTTP_PROXY)" -ForegroundColor Gray }
+            if ($env:HTTPS_PROXY) { Write-Host "  HTTPS_PROXY: $($env:HTTPS_PROXY)" -ForegroundColor Gray }
+        }
         exit 1
     }
     
@@ -429,14 +605,13 @@ function Test-Prerequisites {
     if ($repoInfo.IsPrivate) {
         Write-Info "Repository is private - authentication required"
         
-        # Check for authentication
-        $hasAuth = Test-GitHubAuthentication
-        if (-not $hasAuth) {
+        # Check for authentication with detailed status
+        $authStatus = Test-GitHubAuthentication -ReturnStatus
+        if (-not $authStatus.HasAuth) {
             Write-Error "Private repository requires GitHub authentication."
-            Write-Info "Please set up authentication using one of these methods:"
-            Write-Info "  1. Set environment variable: `$env:GITHUB_TOKEN = 'your_token'"
-            Write-Info "  2. Use GitHub CLI: gh auth login"
-            Write-Info "  3. Create token at: https://github.com/settings/personal-access-tokens/new"
+            Write-Host ""
+            Show-AuthenticationStatus -Status $authStatus
+            Show-AuthenticationHelp
             exit 1
         }
     } else {
@@ -507,6 +682,80 @@ function Backup-ExistingInstallation {
     return $null
 }
 
+function Get-HttpErrorMessage {
+    <#
+    .SYNOPSIS
+        Convert HTTP status code to actionable error message
+    #>
+    param(
+        [int]$StatusCode,
+        [string]$Url
+    )
+    
+    switch ($StatusCode) {
+        401 {
+            return @{
+                Message = "Authentication required (HTTP 401)"
+                Help = @(
+                    "Your token may be invalid or expired",
+                    "Generate a new token at: https://github.com/settings/tokens/new",
+                    "Ensure the token has 'repo' scope for private repositories"
+                )
+            }
+        }
+        403 {
+            return @{
+                Message = "Access forbidden (HTTP 403)"
+                Help = @(
+                    "You may have hit the GitHub API rate limit",
+                    "Your token may lack required permissions",
+                    "Try authenticating: gh auth login",
+                    "Or wait a few minutes and try again"
+                )
+            }
+        }
+        404 {
+            return @{
+                Message = "File not found (HTTP 404)"
+                Help = @(
+                    "Check that the repository URL is correct: $Url",
+                    "Verify the branch name (current: $Branch)",
+                    "Ensure the file exists in the repository"
+                )
+            }
+        }
+        { $_ -ge 500 } {
+            return @{
+                Message = "GitHub server error (HTTP $_)"
+                Help = @(
+                    "This is a temporary GitHub issue",
+                    "Wait a few minutes and try again",
+                    "Check GitHub status: https://www.githubstatus.com/"
+                )
+            }
+        }
+        0 {
+            return @{
+                Message = "Connection timed out or network error"
+                Help = @(
+                    "Check your internet connection",
+                    "If behind a proxy, ensure proxy settings are correct",
+                    "Try: Test-NetConnection -ComputerName raw.githubusercontent.com -Port 443"
+                )
+            }
+        }
+        default {
+            return @{
+                Message = "HTTP error (status code: $StatusCode)"
+                Help = @(
+                    "Unexpected error occurred",
+                    "Check your network connection and try again"
+                )
+            }
+        }
+    }
+}
+
 function Download-File {
     param(
         [string]$FilePath,
@@ -528,8 +777,12 @@ function Download-File {
                 $token = & gh auth token 2>$null
             }
             catch {
+                $authStatus = Test-GitHubAuthentication -Silent -ReturnStatus
                 Write-Error "No GitHub token found for private repository access"
-                throw
+                Write-Host ""
+                Show-AuthenticationStatus -Status $authStatus
+                Show-AuthenticationHelp
+                throw "Authentication required"
             }
         }
         
@@ -537,7 +790,7 @@ function Download-File {
             $headers["Authorization"] = "Bearer $token"
         } else {
             Write-Error "Authentication required for private repository"
-            throw
+            throw "Authentication required"
         }
     }
     
@@ -562,11 +815,27 @@ function Download-File {
         return $true
     }
     catch {
+        # Extract HTTP status code from exception
+        $statusCode = 0
+        if ($_.Exception -and $_.Exception.Response) {
+            $statusCode = [int]$_.Exception.Response.StatusCode
+        }
+        
+        $errorInfo = Get-HttpErrorMessage -StatusCode $statusCode -Url $url
+        
         if ($Required) {
-            Write-Error "Failed to download required file $FilePath`: $_"
-            throw
+            Write-Error "Failed to download required file: $FilePath"
+            Write-Host ""
+            Write-Host "Error: $($errorInfo.Message)" -ForegroundColor Red
+            Write-Host ""
+            Write-Host "Troubleshooting:" -ForegroundColor Yellow
+            foreach ($helpLine in $errorInfo.Help) {
+                Write-Host "  - $helpLine" -ForegroundColor White
+            }
+            Write-Host ""
+            throw "Download failed: $($errorInfo.Message)"
         } else {
-            Write-Warning "Failed to download optional file $FilePath`: $_"
+            Write-Warning "Failed to download optional file $FilePath`: $($errorInfo.Message)"
             return $false
         }
     }

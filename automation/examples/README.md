@@ -1,6 +1,10 @@
 # GitHub Copilot CLI Agent Examples
 
-This directory contains ready-to-use agent configuration examples for various Software Development Lifecycle (SDLC) tasks. Each agent is organized in its own folder with a pre-configured `.properties` file that can be used directly with the copilot-cli wrapper scripts.
+> **Quick Access:** Run `./copilot-cli.sh --list-agents` from the `automation/` directory to see all available agents.
+>
+> **Use an Agent:** Run `./copilot-cli.sh --agent code-review` to use an agent directly.
+
+This directory contains ready-to-use agent configuration examples for various Software Development Lifecycle (SDLC) tasks.
 
 ## 📁 Directory Structure
 
@@ -270,63 +274,30 @@ cd automation
 
 ## 🚀 Quick Start
 
-### Prerequisites
-
-1. **Node.js 20+** - Required for GitHub Copilot CLI
-2. **GitHub Copilot CLI** - Auto-installed automatically, or install manually:
-   ```bash
-   npm install -g @github/copilot
-   ```
-3. **GitHub Authentication** - Set up using one of these methods:
-   - Personal Access Token (recommended)
-   - GitHub CLI authentication (`gh auth login`)
-   - Environment variables (`GH_TOKEN` or `GITHUB_TOKEN`)
+**Prerequisites:** Node.js 20+, GitHub authentication. See [../../README.md](../../README.md) for details.
 
 ### Running an Agent
 
-#### Option 1: Using Properties Files Directly
+**Option 1: Use --agent flag (Recommended)**
+```bash
+# List available agents
+./copilot-cli.sh --list-agents
+
+# Run an agent by name
+./copilot-cli.sh --agent code-review
+./copilot-cli.sh --agent security-analysis
+./copilot-cli.sh --agent test-generation
+```
+
+**Option 2: Using Properties Files Directly**
 ```bash
 # Bash
 cd automation
-./copilot-cli.sh --config examples/code-review/code-review-agent.properties
+./copilot-cli.sh --config examples/code-review/copilot-cli.properties
 
 # PowerShell
 cd automation
-.\copilot-cli.ps1 -Config "examples\code-review\code-review-agent.properties"
-```
-
-#### Option 2: Override Specific Settings
-```bash
-# Bash - Override the prompt while keeping other settings
-cd automation
-./copilot-cli.sh \
-  --config examples/security-analysis/security-analysis-agent.properties \
-  --prompt "Focus only on authentication vulnerabilities"
-
-# PowerShell - Override the prompt
-cd automation
-.\copilot-cli.ps1 `
-  -Config "examples\security-analysis\security-analysis-agent.properties" `
-  -Prompt "Focus only on authentication vulnerabilities"
-```
-
-#### Option 3: Override Multiple Settings
-```bash
-# Bash - Override multiple configuration options
-cd automation
-./copilot-cli.sh \
-  --config examples/code-review/code-review-agent.properties \
-  --prompt "Review only the API layer" \
-  --additional-dirs "./api,./controllers" \
-  --timeout 15
-
-# PowerShell
-cd automation
-.\copilot-cli.ps1 `
-  -Config "examples\code-review\code-review-agent.properties" `
-  -Prompt "Review only the API layer" `
-  -AdditionalDirectories "./api,./controllers" `
-  -TimeoutMinutes 15
+.\copilot-cli.ps1 -Config "examples\code-review\copilot-cli.properties"
 ```
 
 ---
