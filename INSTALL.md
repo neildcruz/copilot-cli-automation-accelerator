@@ -97,13 +97,13 @@ After installation, test with built-in examples and create custom agents for you
 
 ```bash
 # Test installation
-cd copilot-cli-automation-accelerator/automation
+cd .copilot-cli-automation/automation
 ./copilot-cli.sh --agent code-review
 ```
 
 ```powershell
 # PowerShell
-cd copilot-cli-automation-accelerator\automation
+cd .copilot-cli-automation\automation
 .\copilot-cli.ps1 -Agent code-review
 ```
 
@@ -155,7 +155,7 @@ cd C:\path\to\your\project
 When using `--update` / `-Update` flag to update an existing installation:
 
 ✅ **Safe Update Process:**
-1. Existing installation backed up to `copilot-cli-automation-accelerator.backup.TIMESTAMP/`
+1. Existing installation backed up to `.copilot-cli-automation.backup.TIMESTAMP/`
 2. New files downloaded from repository
 3. Your custom configurations preserved (`.copilot-agents/`, custom `copilot-cli.properties`)
 4. On failure: Automatic rollback to backup
@@ -177,7 +177,7 @@ When using `--update` / `-Update` flag to update an existing installation:
 ./install.sh --update
 
 # Backup location (if rollback needed)
-ls copilot-cli-automation-accelerator.backup.*/
+ls .copilot-cli-automation.backup.*/
 ```
 
 ```powershell
@@ -185,7 +185,7 @@ ls copilot-cli-automation-accelerator.backup.*/
 .\install.ps1 -Update
 
 # Check backups
-Get-ChildItem copilot-cli-automation-accelerator.backup.*
+Get-ChildItem .copilot-cli-automation.backup.*
 ```
 
 ---

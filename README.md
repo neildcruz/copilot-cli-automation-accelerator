@@ -16,12 +16,17 @@ A comprehensive collection of tools for automating GitHub Copilot CLI usage in C
 
 ### Local Development Quick Start
 
-**Run a code review right now (zero config):****
+**Run a code review right now (zero config):**
 
 ```bash
-# Install (one-time)
+# Navigate to your desired install location (e.g., your projects directory)
+cd ~/projects  # or any directory you prefer
+
+# Install (one-time) - creates .copilot-cli-automation/ in current directory
 curl -fsSL https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.sh | bash
-cd copilot-cli-automation-accelerator/automation
+
+# Navigate to the automation scripts
+cd .copilot-cli-automation/automation
 
 # Run a pre-built agent
 ./copilot-cli.sh --agent code-review
@@ -29,8 +34,14 @@ cd copilot-cli-automation-accelerator/automation
 
 ```powershell
 # PowerShell (Windows)
+# Navigate to your desired install location (e.g., your projects directory)
+cd C:\Projects  # or any directory you prefer
+
+# Install (one-time) - creates .copilot-cli-automation\ in current directory
 iwr https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerator/main/install.ps1 | iex
-cd copilot-cli-automation-accelerator\automation
+
+# Navigate to the automation scripts
+cd .copilot-cli-automation\automation
 
 # Run a pre-built agent
 .\copilot-cli.ps1 -Agent code-review
