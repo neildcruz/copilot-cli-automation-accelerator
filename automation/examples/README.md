@@ -582,7 +582,101 @@ Refine prompts based on output quality and relevance.
 
 ---
 
-## 🔄 Creating Custom Agents
+## 🔄 Using These Examples as Templates
+
+> **Important:** These examples are **built-in agents** that work out-of-the-box. To create your own **custom agents** for CI/CD, see the guide below.
+
+You can use these examples as starting points for your own custom agents:
+
+### Option 1: Create Custom Agent from Scratch (Recommended)
+
+```bash
+# Navigate to your project
+cd /path/to/your/project
+
+# Create a new custom agent with templates
+./path/to/copilot-cli.sh --init --as-agent --agent-name "my-agent"
+
+# This creates .copilot-agents/my-agent/ with:
+#   - copilot-cli.properties
+#   - user.prompt.md
+#   - system.prompt.md
+#   - description.txt
+
+# Edit the prompts to match your needs
+# Run your custom agent
+./path/to/copilot-cli.sh --agent my-agent
+```
+
+```powershell
+# PowerShell (Windows)
+.\path\to\copilot-cli.ps1 -Init -AsAgent -AgentName "my-agent"
+.\path\to\copilot-cli.ps1 -Agent my-agent
+```
+
+### Option 2: Copy Example as Starting Point
+
+```bash
+# Copy an example to your project's .copilot-agents/ directory
+mkdir -p .copilot-agents/
+cp -r path/to/automation/examples/code-review/ .copilot-agents/my-code-review/
+
+# Customize for your needs
+cd .copilot-agents/my-code-review/
+nano user.prompt.md
+nano system.prompt.md
+
+# Use your customized agent
+cd ../..
+./path/to/copilot-cli.sh --agent my-code-review
+```
+
+### Option 3: Reference by Path
+
+```bash
+# Use any agent from any location without moving files
+./copilot-cli.sh --agent ./path/to/custom/agent/directory
+./copilot-cli.sh --agent /absolute/path/to/agent
+```
+
+### For CI/CD Pipelines
+
+Custom agents in your project's `.copilot-agents/` directory are automatically discovered and perfect for CI/CD:
+
+```yaml
+# .github/workflows/review.yml
+name: Code Review
+on: [pull_request]
+jobs:
+  review:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v3
+      - name: Install
+        run: curl -fsSL https://... | bash
+      - name: Run Custom Agent
+        run: |
+          # Your agent in .copilot-agents/ is auto-discovered
+          ./copilot-cli-automation-accelerator/automation/copilot-cli.sh \
+            --agent my-custom-review
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+```
+
+### Complete Custom Agent Guide
+
+For comprehensive documentation on creating, organizing, and using custom agents:
+
+**See [CUSTOM-AGENTS.md](../../CUSTOM-AGENTS.md)**
+
+Covers:
+- Agent structure and file anatomy
+- Discovery priority and search paths
+- CI/CD integration examples
+- Multi-project and organization-wide patterns
+- Advanced usage and troubleshooting
+
+---
 
 ### Template Structure
 

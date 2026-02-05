@@ -39,8 +39,9 @@ cd copilot-cli-automation-accelerator\automation
 | **Security Scan** | `./copilot-cli.sh --agent security-analysis` |
 | **Generate Tests** | `./copilot-cli.sh --agent test-generation` |
 | **Generate Docs** | `./copilot-cli.sh --agent documentation` |
-| **Refactor Code** | `./copilot-cli.sh --agent refactoring` |
-| **CI/CD Analysis** | `./copilot-cli.sh --agent cicd-analysis` |
+| **Create Custom Agent** | `./copilot-cli.sh --init --as-agent --agent-name "my-agent"` |
+| **Use Custom Agent** | `./copilot-cli.sh --agent my-custom-agent` |
+| **List All Agents** | `./copilot-cli.sh --list-agents` |
 | **Custom Prompt** | `./copilot-cli.sh --prompt "Your task here"` |
 | **Initialize Config** | `./copilot-cli.sh --init` |
 
@@ -182,6 +183,7 @@ See [automation/README.md](automation/README.md) for full documentation.
 
 | Component | Documentation |
 |-----------|---------------|
+| **Creating Custom Agents** | [CUSTOM-AGENTS.md](CUSTOM-AGENTS.md) |
 | GitHub Actions | [actions/README.md](actions/README.md) |
 | Local Scripts | [automation/README.md](automation/README.md) |
 | Pre-built Agents | [automation/examples/](automation/examples/) |

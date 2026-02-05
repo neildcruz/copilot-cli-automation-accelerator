@@ -73,6 +73,93 @@ The default prompts perform a comprehensive codebase analysis including:
 - Security vulnerabilities and risky patterns
 - Prioritized recommendations for improvement
 
+---
+
+## 🎯 Custom Agents
+
+> **New!** Create your own specialized agents tailored to your codebase and team standards.
+
+Custom agents are reusable configurations that combine prompts, settings, and tool permissions for specific analysis tasks. Perfect for CI/CD pipelines where you need consistent, repeatable code reviews.
+
+### Quick Start: Create a Custom Agent
+
+```bash
+# Navigate to your project
+cd /path/to/your/project
+
+# Create a custom agent
+./path/to/copilot-cli.sh --init --as-agent --agent-name "my-review"
+
+# This creates:
+# .copilot-agents/
+#   my-review/
+#     copilot-cli.properties
+#     user.prompt.md
+#     system.prompt.md
+#     description.txt
+
+# Edit the prompts to match your needs
+# Then run:
+./path/to/copilot-cli.sh --agent my-review
+```
+
+```powershell
+# PowerShell
+.\path\to\copilot-cli.ps1 -Init -AsAgent -AgentName "my-review"
+.\path\to\copilot-cli.ps1 -Agent my-review
+```
+
+### Agent Discovery
+
+Agents are discovered in this order (first match wins):
+
+1. **`--agent-directory` parameter** - Explicit primary directory
+2. **`--additional-agent-directories`** - Additional search locations (comma-separated)
+3. **`COPILOT_AGENT_DIRECTORIES` environment variable** - Colon(:) or semicolon(;) separated
+4. **`.copilot-agents/` in current directory** - Recommended for project agents
+5. **Built-in examples** - Fallback to bundled agents
+
+### Using Custom Agents
+
+```bash
+# By name (searches directories)
+./copilot-cli.sh --agent my-agent
+
+# By relative path
+./copilot-cli.sh --agent ./ci/agents/security-scan
+
+# By absolute path
+./copilot-cli.sh --agent /shared/company/agents/baseline
+
+# List all available agents
+./copilot-cli.sh --list-agents
+```
+
+### Configuration via Properties File
+
+```properties
+# copilot-cli.properties
+
+# Custom agent directories
+agent.directory=./.copilot-agents
+additional.agent.directories=./team-agents,./ci-agents
+
+# Other configuration...
+```
+
+### Complete Guide
+
+For comprehensive documentation on creating and managing custom agents, see:
+**[CUSTOM-AGENTS.md](../CUSTOM-AGENTS.md)**
+
+Covers:
+- Agent structure and anatomy
+- CI/CD integration patterns
+- Multi-project and organization-wide setups
+- Advanced patterns and troubleshooting
+
+---
+
 ### Basic Usage
 
 #### Bash (Linux/macOS)

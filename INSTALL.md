@@ -4,6 +4,8 @@
 
 ## Quick Install
 
+> **After Installation:** See [Next Steps](#next-steps) to create your first custom agent for CI/CD pipelines.
+
 ### Windows (PowerShell)
 
 **Direct execution (one-liner):**
@@ -51,6 +53,63 @@ wget https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelera
 chmod +x install.sh
 ./install.sh
 ```
+
+---
+
+## Next Steps
+
+After installation, test with built-in examples and create custom agents for your projects:
+
+### 1. Test with Built-in Examples
+
+```bash
+# Test installation
+cd copilot-cli-automation-accelerator/automation
+./copilot-cli.sh --agent code-review
+```
+
+```powershell
+# PowerShell
+cd copilot-cli-automation-accelerator\automation
+.\copilot-cli.ps1 -Agent code-review
+```
+
+### 2. Create Your First Custom Agent
+
+```bash
+# Go to your project
+cd /path/to/your/project
+
+# Create a custom agent in your project
+/path/to/copilot-cli.sh --init --as-agent --agent-name "my-agent"
+
+# This creates .copilot-agents/my-agent/ with templates
+# Edit the prompts:
+#   .copilot-agents/my-agent/user.prompt.md
+#   .copilot-agents/my-agent/system.prompt.md
+
+# Run your custom agent
+/path/to/copilot-cli.sh --agent my-agent
+```
+
+```powershell
+# PowerShell
+cd C:\path\to\your\project
+\path\to\copilot-cli.ps1 -Init -AsAgent -AgentName "my-agent"
+
+# Edit the prompts and run
+\path\to\copilot-cli.ps1 -Agent my-agent
+```
+
+### 3. Learn More About Custom Agents
+
+See the comprehensive [CUSTOM-AGENTS.md](CUSTOM-AGENTS.md) guide for:
+- Complete agent structure and anatomy
+- CI/CD integration examples
+- Multi-project and team setups
+- Advanced patterns and troubleshooting
+
+---
 
 ## Installation Options
 
