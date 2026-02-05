@@ -881,32 +881,32 @@ function Show-PostInstallInstructions {
     Write-Host "[Prerequisites Status]" -ForegroundColor Cyan
     
     if ($hasGitHubAuth) {
-        Write-Host "  ✓ GitHub Authentication: " -ForegroundColor Green -NoNewline
+        Write-Host "  [OK] GitHub Authentication: " -ForegroundColor Green -NoNewline
         Write-Host "Configured" -ForegroundColor White
     } else {
-        Write-Host "  ○ GitHub Authentication: " -ForegroundColor Yellow -NoNewline
+        Write-Host "  [ ] GitHub Authentication: " -ForegroundColor Yellow -NoNewline
         Write-Host "Not configured" -ForegroundColor Gray
         $allConfigured = $false
     }
     
     if ($nodeStatus.IsInstalled -and $nodeStatus.MeetsRequirement) {
-        Write-Host "  ✓ Node.js: " -ForegroundColor Green -NoNewline
+        Write-Host "  [OK] Node.js: " -ForegroundColor Green -NoNewline
         Write-Host "$($nodeStatus.Version) (meets requirements)" -ForegroundColor White
     } elseif ($nodeStatus.IsInstalled) {
-        Write-Host "  ⚠ Node.js: " -ForegroundColor Yellow -NoNewline
+        Write-Host "  [!] Node.js: " -ForegroundColor Yellow -NoNewline
         Write-Host "$($nodeStatus.Version) (version 20+ recommended)" -ForegroundColor Gray
         $allConfigured = $false
     } else {
-        Write-Host "  ○ Node.js: " -ForegroundColor Yellow -NoNewline
+        Write-Host "  [ ] Node.js: " -ForegroundColor Yellow -NoNewline
         Write-Host "Not installed" -ForegroundColor Gray
         $allConfigured = $false
     }
     
     if ($hasCopilotCli) {
-        Write-Host "  ✓ GitHub Copilot CLI: " -ForegroundColor Green -NoNewline
+        Write-Host "  [OK] GitHub Copilot CLI: " -ForegroundColor Green -NoNewline
         Write-Host "Installed" -ForegroundColor White
     } else {
-        Write-Host "  ○ GitHub Copilot CLI: " -ForegroundColor Yellow -NoNewline
+        Write-Host "  [ ] GitHub Copilot CLI: " -ForegroundColor Yellow -NoNewline
         Write-Host "Not installed" -ForegroundColor Gray
         $allConfigured = $false
     }
@@ -923,9 +923,9 @@ function Show-PostInstallInstructions {
             $hasSteps = $true
         }
         Write-Host "  $stepNumber. Configure GitHub Authentication:" -ForegroundColor White
-        Write-Host "     • GitHub CLI: " -ForegroundColor Gray -NoNewline
+        Write-Host "     - GitHub CLI: " -ForegroundColor Gray -NoNewline
         Write-Host "gh auth login" -ForegroundColor Yellow
-        Write-Host "     • OR set environment variable: " -ForegroundColor Gray -NoNewline
+        Write-Host "     - OR set environment variable: " -ForegroundColor Gray -NoNewline
         Write-Host "`$env:GITHUB_TOKEN = 'your_token'" -ForegroundColor Yellow
         Write-Host ""
         $stepNumber++
@@ -962,13 +962,13 @@ function Show-PostInstallInstructions {
     }
     
     Write-Host "  $stepNumber. Customize configuration:" -ForegroundColor White
-    Write-Host "     • Edit: " -ForegroundColor Gray -NoNewline
+    Write-Host "     - Edit: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/copilot-cli.properties')" -ForegroundColor Yellow
-    Write-Host "     • Customize default prompts: " -ForegroundColor Gray -NoNewline
+    Write-Host "     - Customize default prompts: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/user.prompt.md')" -ForegroundColor Yellow
-    Write-Host "     • Customize system prompts: " -ForegroundColor Gray -NoNewline
+    Write-Host "     - Customize system prompts: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/system.prompt.md')" -ForegroundColor Yellow
-    Write-Host "     • Review example configurations in: " -ForegroundColor Gray -NoNewline
+    Write-Host "     - Review example configurations in: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/examples/')" -ForegroundColor Yellow
     Write-Host ""
     $stepNumber++
@@ -984,11 +984,11 @@ function Show-PostInstallInstructions {
     Write-Host ""
     
     Write-Host "[Documentation]" -ForegroundColor Cyan
-    Write-Host "  • Main README: " -ForegroundColor Gray -NoNewline
+    Write-Host "  - Main README: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'README.md')" -ForegroundColor Yellow
-    Write-Host "  • Automation Guide: " -ForegroundColor Gray -NoNewline
+    Write-Host "  - Automation Guide: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/README.md')" -ForegroundColor Yellow
-    Write-Host "  • GitHub Actions: " -ForegroundColor Gray -NoNewline
+    Write-Host "  - GitHub Actions: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'actions/README.md')" -ForegroundColor Yellow
     Write-Host ""
 }
