@@ -1,6 +1,39 @@
 # GitHub Copilot CLI Automation Accelerator - Installation
 
-> **Prerequisites:** Node.js 20+, GitHub authentication. See [README.md](README.md) for full requirements.
+> **Prerequisites:** 
+> - Node.js 20+
+> - GitHub authentication (see below)
+> - **Windows users:** PowerShell execution policy must allow scripts (see [PowerShell Execution Policy](#powershell-execution-policy-windows))
+> 
+> See [README.md](README.md) for full requirements.
+
+## Prerequisites
+
+### PowerShell Execution Policy (Windows)
+
+**Before installing on Windows**, ensure PowerShell can execute scripts:
+
+```powershell
+# Check current execution policy
+Get-ExecutionPolicy
+
+# If it shows 'Restricted', update it:
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+
+# Verify the change
+Get-ExecutionPolicy
+# Should show: RemoteSigned
+```
+
+**Alternative for single session:**
+```powershell
+# Temporarily bypass execution policy for this installation only
+powershell -ExecutionPolicy Bypass -File install.ps1
+```
+
+This is a **one-time setup** required for PowerShell scripts to run on Windows systems.
+
+---
 
 ## Quick Install
 
@@ -101,13 +134,59 @@ cd C:\path\to\your\project
 \path\to\copilot-cli.ps1 -Agent my-agent
 ```
 
-### 3. Learn More About Custom Agents
+### 3. Explore Advanced Features
 
-See the comprehensive [CUSTOM-AGENTS.md](CUSTOM-AGENTS.md) guide for:
-- Complete agent structure and anatomy
-- CI/CD integration examples
-- Multi-project and team setups
-- Advanced patterns and troubleshooting
+**For custom agent creation:**
+- See [CUSTOM-AGENTS.md](CUSTOM-AGENTS.md) for complete guide on creating specialized agents
+
+**For general usage:**
+- Return to [README.md](README.md) for usage examples and available commands
+
+**For component-specific details:**
+- [automation/README.md](automation/README.md) - Local script reference
+- [actions/README.md](actions/README.md) - GitHub Actions reference
+
+---
+
+## Installation Options
+
+### Update Behavior
+
+When using `--update` / `-Update` flag to update an existing installation:
+
+✅ **Safe Update Process:**
+1. Existing installation backed up to `copilot-cli-automation-accelerator.backup.TIMESTAMP/`
+2. New files downloaded from repository
+3. Your custom configurations preserved (`.copilot-agents/`, custom `copilot-cli.properties`)
+4. On failure: Automatic rollback to backup
+
+✅ **What's Preserved:**
+- Custom agent directories (`.copilot-agents/`)
+- Modified configuration files
+- Local prompt customizations
+- User-specific settings
+
+✅ **What's Updated:**
+- Core scripts (`copilot-cli.sh`, `copilot-cli.ps1`)
+- Built-in example agents
+- Documentation files
+- Action workflow templates
+
+```bash
+# Example: Safe update command
+./install.sh --update
+
+# Backup location (if rollback needed)
+ls copilot-cli-automation-accelerator.backup.*/
+```
+
+```powershell
+# PowerShell update
+.\install.ps1 -Update
+
+# Check backups
+Get-ChildItem copilot-cli-automation-accelerator.backup.*
+```
 
 ---
 
@@ -250,6 +329,33 @@ After successful installation, you'll need to:
    ```
 
 ## Troubleshooting
+
+### Run System Diagnostics
+
+**First step for any installation issue:** Run the comprehensive diagnostic check:
+
+```bash
+# Bash (Linux/macOS)
+./automation/copilot-cli.sh --diagnose
+```
+
+```powershell
+# PowerShell (Windows)
+.\automation\copilot-cli.ps1 -Diagnose
+```
+
+**What it checks:**
+- ✅ GitHub authentication (all methods: `GITHUB_TOKEN`, `GH_TOKEN`, `gh` CLI)
+- ✅ Node.js installation and version compatibility
+- ✅ GitHub Copilot CLI installation status
+- ✅ Agent discovery paths and directories
+- ✅ Environment variables configuration
+- ✅ MCP server configuration (if applicable)
+- ✅ File permissions and accessibility
+
+**Share the diagnostic output when reporting issues** - it provides complete context for troubleshooting.
+
+---
 
 ### Common Issues
 

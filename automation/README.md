@@ -1,6 +1,8 @@
-# GitHub Copilot CLI Local Scripts
+# GitHub Copilot CLI Local Scripts - Reference
 
-> **New here?** Start with [../README.md](../README.md) for a 30-second quick start guide.
+> **New here?** Start with the [Quick Start Guide](../README.md#-30-second-quick-start) in the main README.
+> 
+> **This document** is reference documentation for users already familiar with the basics.
 
 Local automation scripts providing the same functionality as the GitHub Action for local execution. Supports configuration via properties files and command line arguments.
 
@@ -15,6 +17,20 @@ Local automation scripts providing the same functionality as the GitHub Action f
 ## 🚀 Quick Start
 
 **Prerequisites:** Node.js 20+, GitHub authentication (`gh auth login` or `GITHUB_TOKEN`). See [../README.md](../README.md) for details.
+
+**Having issues?** Run diagnostics: `./copilot-cli.sh --diagnose` (Bash) or `.\copilot-cli.ps1 -Diagnose` (PowerShell)
+
+**Model Configuration:** Default model is `claude-sonnet-4.5`. To use a different model:
+```bash
+# Via command line
+./copilot-cli.sh --model gpt-5 --agent code-review
+
+# Via configuration file (copilot-cli.properties)
+copilot.model=gpt-5
+
+# Check available models
+gh copilot models list
+```
 
 ### Use a Pre-built Agent
 
@@ -49,6 +65,16 @@ Run multiple agents sequentially for comprehensive analysis:
 - Each agent's output is saved to `~/.copilot-cli-automation/runs/{timestamp}/`
 - A summary report shows pass/fail status and duration for each agent
 - Agents share the working directory, so earlier agents can create files for later ones
+
+**Output Location:**
+Multi-agent run results are saved to:
+```bash
+~/.copilot-cli-automation/runs/{timestamp}/
+├── agent-1-name.log
+├── agent-2-name.log
+├── agent-3-name.log
+└── summary.md
+```
 
 **Designing prompts for sequential workflows:**
 - Earlier agents can write marker files (e.g., `SECURITY_FINDINGS.md`)
@@ -638,6 +664,250 @@ gh auth status
 jq --version
 ```
 
+## � Troubleshooting
+
+### Run System Diagnostics
+
+**First step for any issue:** Run the comprehensive diagnostic tool:
+
+```bash
+# Bash (Linux/macOS)
+./copilot-cli.sh --diagnose
+```
+
+```powershell
+# PowerShell (Windows)
+.\copilot-cli.ps1 -Diagnose
+```
+
+**What it checks:**
+- ✅ GitHub authentication status (all methods: `GITHUB_TOKEN`, `GH_TOKEN`, `gh` CLI)
+- ✅ Node.js installation and version compatibility
+- ✅ GitHub Copilot CLI installation status
+- ✅ Agent discovery paths and directories
+- ✅ Environment variables configuration
+- ✅ MCP server configuration (if applicable)
+- ✅ File permissions and accessibility
+
+**Example output:**
+```
+SYSTEM DIAGNOSTICS
+==================
+✓ GitHub Authentication: GITHUB_TOKEN (configured)
+✓ Node.js: v22.1.0 (compatible)
+✓ Copilot CLI: Installed (v1.5.0)
+✓ Agent Paths: .copilot-agents/ (found)
+✓ MCP Config: Not configured (optional)
+```
+
+Share this output when reporting issues for faster resolution.
+
+### Common Issues
+
+**Agent not found:**
+```bash
+# List all available agents
+./copilot-cli.sh --list-agents
+
+# Verify agent directory structure
+ls -la .copilot-agents/my-agent/
+# Should contain: copilot-cli.properties, user.prompt.md, or system.prompt.md
+```
+
+**Permission errors:**
+```bash
+# Make scripts executable (Linux/macOS)
+chmod +x copilot-cli.sh
+
+# PowerShell execution policy (Windows)
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+**Authentication failures:**
+```bash
+# Verify GitHub authentication
+gh auth status
+
+# Or check environment variables
+echo $GITHUB_TOKEN    # Bash
+$env:GITHUB_TOKEN     # PowerShell
+```
+
+For more troubleshooting help, see [../INSTALL.md](../INSTALL.md#troubleshooting).
+---
+
+## 🌐 Shared Prompt Repositories
+
+Pull pre-built prompts from GitHub repositories without downloading entire projects. This feature allows you to use community-created or organization-wide prompts.
+
+### Use a Prompt from Default Repository
+
+```bash
+# List available prompts from default repo (github/awesome-copilot)
+./copilot-cli.sh --list-prompts
+
+# Use a specific prompt by name
+./copilot-cli.sh --use-prompt code-review
+
+# Search for prompts by keyword
+./copilot-cli.sh --search-prompts "security"
+
+# Get detailed information about a prompt
+./copilot-cli.sh --prompt-info code-review
+```
+
+```powershell
+# PowerShell equivalents
+.\copilot-cli.ps1 -ListPrompts
+.\copilot-cli.ps1 -UsePrompt "code-review"
+.\copilot-cli.ps1 -SearchPrompts "security"
+.\copilot-cli.ps1 -PromptInfo "code-review"
+```
+
+### Use Prompts from Custom Repositories
+
+Specify a different repository using the format `owner/repo:prompt-name`:
+
+```bash
+# Use a prompt from your organization's repository
+./copilot-cli.sh --use-prompt myorg/prompts:security-scan
+
+# Use a prompt from a specific public repository
+./copilot-cli.sh --use-prompt company/code-standards:python-review
+
+# Set a different default repository for the session
+./copilot-cli.sh --default-prompt-repo myorg/awesome-prompts --list-prompts
+```
+
+```powershell
+# PowerShell
+.\copilot-cli.ps1 -UsePrompt "myorg/prompts:security-scan"
+.\copilot-cli.ps1 -DefaultPromptRepo "myorg/awesome-prompts" -ListPrompts
+```
+
+### Prompt Caching
+
+Prompts are automatically cached locally to improve performance:
+
+**Cache location:** `~/.copilot-cli-automation/prompt-cache/`
+
+```bash
+# Update cached prompts (refresh from repository)
+./copilot-cli.sh --update-prompt-cache
+
+# Use custom cache directory
+./copilot-cli.sh --prompt-cache-dir /path/to/cache --use-prompt code-review
+```
+
+```powershell
+# PowerShell
+.\copilot-cli.ps1 -UpdatePromptCache
+.\copilot-cli.ps1 -PromptCacheDir "C:\cache" -UsePrompt "code-review"
+```
+
+### Creating Shareable Prompts
+
+To create prompts that others can use:
+
+1. **Create a GitHub repository** with your prompts
+2. **Organize prompts** in directories (e.g., `prompts/security/`, `prompts/code-review/`)
+3. **Add description files** (`description.txt`) for each prompt
+4. **Share the repository** with your team or make it public
+
+Others can then use: `./copilot-cli.sh --use-prompt yourorg/yourrepo:prompt-name`
+
+---
+
+## 🔌 MCP Server Integration
+
+**Model Context Protocol (MCP)** servers extend GitHub Copilot CLI with custom tools and capabilities beyond the built-in functionality.
+
+### What Are MCP Servers?
+
+MCP servers provide additional context and tools to the AI model during analysis:
+- **Database Access** - Query application databases for schema or data context
+- **API Integration** - Call internal APIs to gather system state
+- **Custom Tools** - Add company-specific analysis or transformation tools
+- **External Services** - Integrate with issue trackers, monitoring systems, documentation
+
+### Quick Example: Python MCP Server
+
+**1. Create a simple MCP server** (`tools/mcp-server.py`):
+
+```python
+# Example Python MCP server implementation
+# See: https://modelcontextprotocol.io for full specification
+
+import sys
+import json
+from mcp import MCPServer
+
+server = MCPServer()
+
+@server.tool("query_database")
+def query_database(query: str) -> dict:
+    """Query the application database"""
+    # Your database query logic here
+    return {"results": [], "message": "Query executed"}
+
+if __name__ == "__main__":
+    server.run()
+```
+
+**2. Configure MCP server** (`mcp-config.json`):
+
+```json
+{
+  "mcpServers": {
+    "database-tool": {
+      "command": "python",
+      "args": ["tools/mcp-server.py"],
+      "env": {
+        "DATABASE_URL": "${DATABASE_URL}"
+      }
+    }
+  }
+}
+```
+
+**3. Run with MCP server:**
+
+```bash
+# Set environment variables
+export DATABASE_URL="postgresql://localhost/mydb"
+
+# Run with MCP configuration
+./copilot-cli.sh --mcp-config-file mcp-config.json --agent code-review
+```
+
+### MCP Configuration Examples
+
+See [examples/mcp-config.json](examples/mcp-config.json) for comprehensive examples including:
+- Local Python servers
+- Local Node.js servers  
+- HTTP/REST endpoints
+- Server-Sent Events (SSE) streams
+
+### Available MCP Server Types
+
+| Type | Use Case | Example |
+|------|----------|---------|
+| **Python Local** | Custom scripts, database access | `{"command": "python", "args": ["server.py"]}` |
+| **Node.js Local** | JavaScript tools, file processing | `{"command": "node", "args": ["server.js"]}` |
+| **HTTP/REST** | Remote APIs, cloud services | `{"url": "https://api.example.com/mcp"}` |
+| **SSE Stream** | Real-time data, monitoring | `{"url": "...", "transport": "sse"}` |
+
+### Security Considerations
+
+- ⚠️ **Validate MCP server sources** before use
+- ⚠️ **Review server permissions** and capabilities
+- ⚠️ **Use environment variables** for sensitive configuration (not hardcoded)
+- ⚠️ **Test MCP servers** in isolated environments first
+- ✅ **Disable servers** when not needed: `--disable-mcp-servers server-name`
+
+For more on MCP security, see [../SECURITY.md](../SECURITY.md#4-mcp-server-security).
+
+---
 ## 💡 Tips and Best Practices
 
 1. **Use configuration files** for repeated tasks

@@ -37,7 +37,37 @@ examples/
 └── mcp-config.json           - MCP server configuration example
 ```
 
-## 📁 Available Agents
+## � Multi-Stage Workflows
+
+### **Multi-Stage Security Analysis Pipeline**
+**Location:** `multi-stage-workflow/`
+
+Demonstrates agents working together in sequence, with later stages consuming output from earlier stages.
+
+**Workflow:**
+1. **Stage 1: Scanner** - Scans codebase, writes `SECURITY_FINDINGS.md`
+2. **Stage 2: Fixer** - Reads findings, generates fixes to `SECURITY_FIXES.md`
+
+**Usage:**
+```bash
+# Run both stages sequentially
+./copilot-cli.sh --agents "multi-stage-workflow/stage-1-scanner,multi-stage-workflow/stage-2-fixer"
+
+# Run stages individually
+./copilot-cli.sh --agent multi-stage-workflow/stage-1-scanner
+./copilot-cli.sh --agent multi-stage-workflow/stage-2-fixer
+```
+
+**Learn More:** See [multi-stage-workflow/README.md](multi-stage-workflow/README.md) for complete documentation, customization guide, and CI/CD integration examples.
+
+**Key Pattern:** Agents communicate through files, allowing:
+- Audit trails of multi-step analysis
+- Manual review between stages  
+- Modular, reusable pipeline components
+
+---
+
+## �📁 Available Agents
 
 ### 1. **Code Review Agent**
 **Location:** `code-review/code-review-agent.properties`

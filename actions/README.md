@@ -1,6 +1,55 @@
-# GitHub Actions Workflows
+# GitHub Actions Workflows - Reference
+
+> **New here?** Start with the [Quick Start Guide](../README.md#-30-second-quick-start) in the main README.
+> 
+> **This document** is reference documentation for GitHub Actions integration.
 
 This directory contains reusable GitHub Actions workflows for integrating Copilot CLI automation into your CI/CD pipelines.
+
+---
+
+## 🔐 Required Permissions
+
+### Minimal Permissions (Read-Only Analysis)
+
+For basic code analysis that only reads files and generates reports:
+
+```yaml
+permissions:
+  contents: read
+```
+
+**This allows:**
+- ✅ Reading repository code
+- ✅ Analyzing files
+- ✅ Generating reports in workflow logs
+- ✅ Running security scans
+- ✅ Code quality analysis
+
+### Enhanced Permissions (Interactive Workflows)
+
+For workflows that post comments or create issues:
+
+```yaml
+permissions:
+  contents: read
+  pull-requests: write  # Post review comments on PRs
+  issues: write         # Create issues for findings
+```
+
+**This additionally allows:**
+- ✅ Posting comments on pull requests
+- ✅ Creating issues from analysis findings
+- ✅ Updating PR descriptions
+- ✅ Adding labels to PRs/issues
+
+### Why Specify Permissions?
+
+GitHub's `GITHUB_TOKEN` has limited permissions by default for security. The `permissions:` block grants only what your workflow needs, following the **principle of least privilege**.
+
+**Learn more:** [GitHub Token Permissions Documentation](https://docs.github.com/en/actions/security-guides/automatic-token-authentication#permissions-for-the-github_token)
+
+---
 
 ## Available Actions
 

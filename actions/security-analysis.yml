@@ -33,6 +33,13 @@ on:
 jobs:
   security-analysis:
     name: AI Security Analysis
+    # Required permissions:
+    # - contents: read  = Read repository code for analysis
+    # - issues: write   = (Optional) Create issues for critical findings
+    permissions:
+      contents: read
+      # Uncomment to allow creating issues:
+      # issues: write
     uses: ./.github/workflows/copilot-cli-action.yml
     with:
       system_prompt: |
@@ -84,6 +91,10 @@ jobs:
     needs: security-analysis
     if: always() && needs.security-analysis.result == 'success'
     runs-on: ubuntu-latest
+    # Required permissions:
+    # - contents: read = Access repository for step summary
+    permissions:
+      contents: read
     steps:
       - name: Display Security Analysis Results
         run: |

@@ -41,6 +41,13 @@ on:
 jobs:
   documentation:
     name: AI Documentation Generation
+    # Required permissions:
+    # - contents: write = Create/update documentation files and commit changes
+    # - pull-requests: write = (Optional) Comment on PRs with generated docs
+    permissions:
+      contents: write
+      # Uncomment to allow PR comments:
+      # pull-requests: write
     uses: ./.github/workflows/copilot-cli-action.yml
     with:
       system_prompt: |
@@ -90,6 +97,10 @@ jobs:
     needs: documentation
     if: always() && needs.documentation.result == 'success'
     runs-on: ubuntu-latest
+    # Required permissions:
+    # - contents: read = Access repository for step summary
+    permissions:
+      contents: read
     steps:
       - name: Display Documentation Results
         run: |

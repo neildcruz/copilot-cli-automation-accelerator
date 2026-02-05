@@ -1,10 +1,22 @@
 # GitHub Copilot CLI Automation Suite
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![GitHub release](https://img.shields.io/github/v/release/neildcruz/copilot-cli-automation-accelerator?include_prereleases)](https://github.com/neildcruz/copilot-cli-automation-accelerator/releases)
+[![GitHub last commit](https://img.shields.io/github/last-commit/neildcruz/copilot-cli-automation-accelerator)](https://github.com/neildcruz/copilot-cli-automation-accelerator/commits/main)
+
 A comprehensive collection of tools for automating GitHub Copilot CLI usage in CI/CD pipelines and local development environments.
+
+---
 
 ## 🚀 30-Second Quick Start
 
-**Run a code review right now (zero config):**
+**Choose your path:**
+- **☁️ GitHub Actions (CI/CD)** → [Jump to GitHub Actions setup](#️-for-github-actions-cicd)
+- **💻 Local Scripts (Development)** → Continue reading below
+
+### Local Development Quick Start
+
+**Run a code review right now (zero config):****
 
 ```bash
 # Install (one-time)
@@ -29,6 +41,13 @@ cd copilot-cli-automation-accelerator\automation
 ./copilot-cli.sh --list-agents
 ```
 
+> **Note:** The default AI model is `claude-sonnet-4.5`. To use a different model:
+> ```bash
+> ./copilot-cli.sh --model gpt-5 --agent code-review
+> # Or set in copilot-cli.properties: copilot.model=gpt-5
+> # Check available models: gh copilot models list
+> ```
+
 ---
 
 ## 📋 What Can I Do?
@@ -39,6 +58,7 @@ cd copilot-cli-automation-accelerator\automation
 | **Security Scan** | `./copilot-cli.sh --agent security-analysis` |
 | **Generate Tests** | `./copilot-cli.sh --agent test-generation` |
 | **Generate Docs** | `./copilot-cli.sh --agent documentation` |
+| **Use Shared Prompt** | `./copilot-cli.sh --use-prompt code-review` |
 | **Create Custom Agent** | `./copilot-cli.sh --init --as-agent --agent-name "my-agent"` |
 | **Use Custom Agent** | `./copilot-cli.sh --agent my-custom-agent` |
 | **List All Agents** | `./copilot-cli.sh --list-agents` |
@@ -64,6 +84,8 @@ iwr https://raw.githubusercontent.com/neildcruz/copilot-cli-automation-accelerat
 > See [INSTALL.md](INSTALL.md) for advanced installation options, custom paths, and troubleshooting.
 
 **Prerequisites:** Node.js 20+, GitHub authentication (`gh auth login` or `GITHUB_TOKEN` env var)
+
+**Having issues?** Run `./copilot-cli.sh --diagnose` (or `.\copilot-cli.ps1 -Diagnose` on Windows) for a comprehensive system health check.
 
 ---
 

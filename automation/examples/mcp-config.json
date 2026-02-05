@@ -1,4 +1,7 @@
 {
+  "_comment": "MCP Server Configuration Examples",
+  "_description": "Configure Model Context Protocol (MCP) servers to extend Copilot CLI with custom tools and capabilities. Environment variables (${VAR_NAME}) are automatically expanded.",
+  
   "mcpServers": {
     "file-analyzer": {
       "type": "local",
@@ -8,8 +11,10 @@
       "env": {
         "ANALYSIS_DEPTH": "${ANALYSIS_DEPTH:-standard}",
         "OUTPUT_FORMAT": "json"
-      }
+      },
+      "_description": "Local Python MCP server for file analysis and metrics"
     },
+    
     "github-integration": {
       "type": "http",
       "url": "https://api.github.com/mcp",
@@ -17,8 +22,10 @@
         "Authorization": "Bearer ${GITHUB_TOKEN}",
         "Accept": "application/vnd.github.v3+json"
       },
-      "tools": ["*"]
+      "tools": ["*"],
+      "_description": "HTTP/REST MCP server for GitHub API integration"
     },
+    
     "database-tools": {
       "type": "local",
       "command": "node",
@@ -27,8 +34,10 @@
       "env": {
         "DATABASE_URL": "${DATABASE_URL}",
         "DB_TIMEOUT": "${DB_TIMEOUT:-30000}"
-      }
+      },
+      "_description": "Local Node.js MCP server for database schema analysis"
     },
+    
     "api-validator": {
       "type": "sse",
       "url": "${API_VALIDATOR_URL:-https://validator.example.com/mcp}",
@@ -36,7 +45,11 @@
         "Authorization": "Bearer ${API_VALIDATOR_TOKEN}",
         "X-Validation-Level": "strict"
       },
-      "tools": ["validate_openapi", "check_endpoints", "test_responses"]
+      "tools": ["validate_openapi", "check_endpoints", "test_responses"],
+      "_description": "Server-Sent Events (SSE) MCP server for API validation"
     }
-  }
+  },
+  
+  "_usage": "Use with: ./copilot-cli.sh --mcp-config-file mcp-config.json --agent code-review",
+  "_security": "Never commit sensitive tokens. Use environment variables for all credentials."
 }

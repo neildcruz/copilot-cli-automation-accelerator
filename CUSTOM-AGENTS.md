@@ -189,13 +189,26 @@ Search multiple directories (comma-separated). Useful for combining team-wide an
 
 ### 3. `COPILOT_AGENT_DIRECTORIES` Environment Variable
 
+**Linux/macOS (colon-separated `:` delimiter):**
 ```bash
-# Bash/Linux/macOS (colon-separated)
 export COPILOT_AGENT_DIRECTORIES="/shared/company-agents:$HOME/.copilot-agents"
+```
 
-# PowerShell/Windows (semicolon-separated)
+**Windows CMD (semicolon-separated `;` delimiter):**
+```cmd
+set COPILOT_AGENT_DIRECTORIES=C:\shared\company-agents;%USERPROFILE%\.copilot-agents
+```
+
+**Windows PowerShell (semicolon-separated `;` delimiter):**
+```powershell
 $env:COPILOT_AGENT_DIRECTORIES = "C:\shared\company-agents;$HOME\.copilot-agents"
 ```
+
+> ⚠️ **Important Platform Difference:** 
+> - **Windows** uses **semicolons** (`;`) to separate paths
+> - **Linux/macOS** uses **colons** (`:`) to separate paths
+> 
+> Using the wrong delimiter will cause agent discovery to fail silently.
 
 Perfect for CI/CD environments and organization-wide agent sharing.
 
@@ -492,6 +505,8 @@ Create a summary with proposed changes.
 ```bash
 ./copilot-cli.sh --agents "security-scan,security-fix-gen" --agent-error-mode stop
 ```
+
+**🎯 Working Example:** See [automation/examples/multi-stage-workflow/](automation/examples/multi-stage-workflow/) for a complete, ready-to-use multi-stage security analysis pipeline with detailed documentation, CI/CD integration examples, and troubleshooting guide.
 
 ### Technology-Specific Agents
 
