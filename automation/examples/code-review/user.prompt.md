@@ -67,3 +67,14 @@ List 5-10 additional issues worth noting (brief format):
 ---
 
 **Note**: Focus on actionable, specific feedback. Prioritize issues that pose security risks, could cause production incidents, or significantly impact maintainability.
+
+## Issue Creation
+
+If the GitHub MCP server is available, automatically create GitHub issues for each of the top 10 critical issues identified in this review. For each issue:
+- Use the issue title from the review (e.g., "Issue #1: [Brief Title]")
+- Include the full details in the issue body (severity, category, description, impact, code snippets, recommended fix, effort estimate)
+- Apply appropriate labels based on severity and category (e.g., `security`, `bug`, `performance`, `tech-debt`)
+- Set priority labels (`priority: critical`, `priority: high`, etc.) based on severity
+- Add effort labels (`effort: low`, `effort: medium`, `effort: high`) based on effort estimate
+
+This ensures all critical findings are tracked and can be assigned to team members for resolution.
