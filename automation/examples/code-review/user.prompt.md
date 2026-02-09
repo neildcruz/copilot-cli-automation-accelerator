@@ -81,13 +81,49 @@ List 5-10 additional issues worth noting (brief format):
 
 **CRITICAL REMINDER**: You MUST provide the complete report above in your response. Do NOT provide a brief summary and ask if the user wants more details. Generate the FULL report with ALL sections populated now. This is an automated workflow - there is no opportunity for follow-up interaction.
 
-## Issue Creation
+## Issue Creation Workflow
 
-If the GitHub MCP server is available, automatically create GitHub issues for each of the top 10 critical issues identified in this review. For each issue:
-- Use the issue title from the review (e.g., "Issue #1: [Brief Title]")
-- Include the full details in the issue body (severity, category, description, impact, code snippets, recommended fix, effort estimate)
-- Apply appropriate labels based on severity and category (e.g., `security`, `bug`, `performance`, `tech-debt`)
-- Set priority labels (`priority: critical`, `priority: high`, etc.) based on severity
-- Add effort labels (`effort: low`, `effort: medium`, `effort: high`) based on effort estimate
+**CRITICAL INSTRUCTIONS FOR GITHUB INTEGRATION**:
 
-This ensures all critical findings are tracked and can be assigned to team members for resolution.
+After generating the complete code review report above, proceed with the following automated workflow:
+
+1. **DO NOT call `list_issues` or any other listing/search tools** - this wastes tokens and time
+2. **Directly create GitHub issues** for each of the top 10 critical issues using the `create_issue` tool
+3. **Create issues in sequence**, one at a time, to ensure proper tracking
+
+For each issue you create:
+- **Title**: Use format "Code Review - Issue #X: [Brief Title]" (e.g., "Code Review - Issue #1: SQL Injection in User Query")
+- **Body**: Include full details in markdown format:
+  ```markdown
+  ## Severity: [CRITICAL/HIGH/MEDIUM/LOW]
+  ## Category: [Security/Bug/Performance/Design/Maintainability/etc.]
+  ## Location
+  `[file path:line numbers]`
+  
+  ## Description
+  [Clear explanation of the problem]
+  
+  ## Impact
+  [What happens if this isn't fixed]
+  
+  ## Current Code
+  ```language
+  [problematic code snippet]
+  ```
+  
+  ## Recommended Fix
+  ```language
+  [improved code snippet]
+  ```
+  
+  ## Effort Estimate
+  [Low/Medium/High]
+  ```
+- **Labels**: Apply based on severity and category:
+  - Severity: `security`, `bug`, `performance`, `design`, `tech-debt`, `maintainability`
+  - Priority: `priority-critical`, `priority-high`, `priority-medium`, `priority-low`
+  - Effort: `effort-low`, `effort-medium`, `effort-high`
+
+**Error Handling**: If issue creation fails (e.g., GitHub MCP server not available, authentication issues), include a note at the end of your report with the issue details that couldn't be created, but DO NOT stop the review process.
+
+This ensures all critical findings are tracked in GitHub and can be assigned to team members for resolution.

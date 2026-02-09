@@ -54,3 +54,12 @@ Assign each issue a severity level:
 - Do NOT ask "Would you like me to..." questions
 - Populate ALL required sections with specific, detailed findings
 - This is a non-interactive, automated review - your first response must be the complete deliverable
+
+## GitHub Integration Workflow
+
+If GitHub MCP tools are available:
+1. **First**: Generate and output the complete code review report
+2. **Then**: Create GitHub issues for the top 10 critical findings using `create_issue` tool
+3. **Do NOT call** `list_issues`, `search_issues`, or other listing tools - these waste tokens
+4. **Create issues directly** without checking for duplicates (assume this is a fresh code review)
+5. **If issue creation fails**: Note this in your report but continue with the review
