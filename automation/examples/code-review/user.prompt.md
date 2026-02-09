@@ -2,7 +2,18 @@
 
 Perform a comprehensive code review of this repository and generate a detailed report.
 
+**IMPORTANT INSTRUCTIONS**:
+- This review is running in **asynchronous/automated mode**
+- **DO NOT ask any follow-up questions** or request clarification from the user
+- **DO NOT ask for permission** to proceed with any actions
+- Make reasonable assumptions based on the codebase context and proceed autonomously
+- **GENERATE THE COMPLETE REPORT** in the format below in your response
+- Include all sections: Executive Summary, Top 10 Critical Issues (with full details for each), Additional Findings, Security Analysis, Code Metrics Summary, Recommendations, and Positive Highlights
+- This is a **single-response deliverable** - provide the full analysis now, not a summary followed by questions
+
 ## Required Output Format
+
+YOU MUST generate a report following this EXACT structure:
 
 ### Executive Summary
 - Repository overview (language, framework, purpose)
@@ -67,6 +78,8 @@ List 5-10 additional issues worth noting (brief format):
 ---
 
 **Note**: Focus on actionable, specific feedback. Prioritize issues that pose security risks, could cause production incidents, or significantly impact maintainability.
+
+**CRITICAL REMINDER**: You MUST provide the complete report above in your response. Do NOT provide a brief summary and ask if the user wants more details. Generate the FULL report with ALL sections populated now. This is an automated workflow - there is no opportunity for follow-up interaction.
 
 ## Issue Creation
 
