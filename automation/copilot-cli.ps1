@@ -55,6 +55,7 @@ param(
     [switch]$Init,
     # New: Built-in agent discovery
     [switch]$ListAgents,
+    [string]$ViewAgent = "",
     # New: Use defaults flag
     [switch]$UseDefaults,
     # New: Multi-agent composition
@@ -116,6 +117,7 @@ QUICK START:
 
 BUILT-IN AGENTS:
     -ListAgents                    List all available built-in and custom agents
+    -ViewAgent NAME                Show detailed configuration for a specific agent
     -Agent NAME                    Use an agent by name or path
                                    Examples: code-review, ./my-agents/custom, /path/to/agent
     -Agents NAMES                  Run multiple agents sequentially (comma-separated)
@@ -232,6 +234,9 @@ EXAMPLES:
     
     # List all agents (built-in and custom)
     .\copilot-cli.ps1 -ListAgents
+    
+    # View detailed agent configuration
+    .\copilot-cli.ps1 -ViewAgent code-review
     
     # Use a pre-built prompt from awesome-copilot
     .\copilot-cli.ps1 -UsePrompt code-review
@@ -1555,6 +1560,138 @@ function Show-BuiltInAgents {
     
     Write-Host ""
     Write-Host "Usage: -Agent <name>  (e.g., -Agent code-review)" -ForegroundColor Gray
+    Write-Host "Info:  -ViewAgent <name> for detailed configuration" -ForegroundColor Gray
+}
+
+# Function to display detailed agent configuration
+function Show-AgentInfo {
+    param([string]$AgentName)
+    
+    $agentConfig = Get-BuiltInAgentConfig -AgentName $AgentName
+    if (-not $agentConfig) {
+        return
+    }
+    
+    $agentPath = $agentConfig.Path
+    $displayName = Split-Path -Leaf $agentPath
+    
+    Write-Host ""
+    Write-Host "===== Agent: $displayName =====" -ForegroundColor Cyan
+    Write-Host ""
+    
+    # Path
+    Write-Host "  Path:" -ForegroundColor Yellow -NoNewline
+    Write-Host "         $agentPath"
+    
+    # Description
+    $descFile = Join-Path $agentPath "description.txt"
+    if (Test-Path $descFile) {
+        $desc = (Get-Content $descFile -Raw).Trim()
+        Write-Host "  Description:" -ForegroundColor Yellow -NoNewline
+        Write-Host "  $desc"
+    }
+    Write-Host ""
+    
+    # Files present
+    Write-Host "  Files:" -ForegroundColor Yellow
+    $files = Get-ChildItem -Path $agentPath -File -ErrorAction SilentlyContinue
+    if ($files) {
+        foreach ($f in $files | Sort-Object Name) {
+            Write-Host "    - $($f.Name)" -ForegroundColor White
+        }
+    } else {
+        Write-Host "    (none)" -ForegroundColor Gray
+    }
+    Write-Host ""
+    
+    # Properties
+    if ($agentConfig.PropertiesFile -and (Test-Path $agentConfig.PropertiesFile)) {
+        Write-Host "  Properties ($((Split-Path -Leaf $agentConfig.PropertiesFile))):" -ForegroundColor Yellow
+        $propsLines = Get-Content $agentConfig.PropertiesFile
+        foreach ($line in $propsLines) {
+            $trimmed = $line.Trim()
+            if ($trimmed -match '^#' -or [string]::IsNullOrEmpty($trimmed)) { continue }
+            if ($trimmed -match '^([^=]+)=(.*)$') {
+                $key = $Matches[1].Trim()
+                $val = $Matches[2].Trim()
+                Write-Host ("    {0,-25} = {1}" -f $key, $val) -ForegroundColor White
+            }
+        }
+        Write-Host ""
+    }
+    
+    # Agent definition (.agent.md frontmatter)
+    if ($agentConfig.AgentFile -and (Test-Path $agentConfig.AgentFile)) {
+        $agentMdName = Split-Path -Leaf $agentConfig.AgentFile
+        Write-Host "  Agent Definition ($agentMdName):" -ForegroundColor Yellow
+        $agentContent = Get-Content -Path $agentConfig.AgentFile -Raw
+        if ($agentContent -match '^---\s*\r?\n([\s\S]*?)\r?\n---') {
+            $fm = $Matches[1]
+            if ($fm -match 'name:\s*[''"]?([^''"\r\n]+)') {
+                Write-Host "    Name:        $($Matches[1].Trim())" -ForegroundColor White
+            }
+            if ($fm -match 'description:\s*[''"]?([^''"\r\n]+)') {
+                Write-Host "    Description: $($Matches[1].Trim())" -ForegroundColor White
+            }
+            # Handle tools as YAML list (- item) or inline array [item, item]
+            if ($fm -match 'tools:\s*\[([^\]]+)\]') {
+                $toolsRaw = $Matches[1]
+                $toolsList = ($toolsRaw -split ',' | ForEach-Object { $_.Trim().Trim("'").Trim('"') } | Where-Object { $_ -ne '' }) -join ', '
+                if ($toolsList) {
+                    Write-Host "    Tools:       $toolsList" -ForegroundColor White
+                }
+            } elseif ($fm -match '(?s)tools:\s*\n((?:\s+-\s*.+\n?)+)') {
+                $toolsList = ($Matches[1] -split "`n" | ForEach-Object { ($_ -replace '^\s*-\s*', '').Trim().Trim("'").Trim('"') } | Where-Object { $_ -ne '' }) -join ', '
+                if ($toolsList) {
+                    Write-Host "    Tools:       $toolsList" -ForegroundColor White
+                }
+            }
+        }
+        Write-Host ""
+    }
+    
+    # User prompt preview
+    if ($agentConfig.UserPromptFile -and (Test-Path $agentConfig.UserPromptFile)) {
+        $promptName = Split-Path -Leaf $agentConfig.UserPromptFile
+        Write-Host "  User Prompt Preview ($promptName):" -ForegroundColor Yellow
+        $promptContent = Get-Content -Path $agentConfig.UserPromptFile -Raw
+        if ($promptContent) {
+            $preview = if ($promptContent.Length -gt 500) { $promptContent.Substring(0, 500) + "..." } else { $promptContent }
+            # Indent each line
+            $preview -split "`n" | ForEach-Object { Write-Host "    $_" -ForegroundColor Gray }
+        }
+        Write-Host ""
+    }
+    
+    # MCP config
+    $mcpFile = Join-Path $agentPath "mcp-config.json"
+    if (Test-Path $mcpFile) {
+        Write-Host "  MCP Servers (mcp-config.json):" -ForegroundColor Yellow
+        try {
+            $mcpJson = Get-Content $mcpFile -Raw | ConvertFrom-Json
+            # Try mcpServers or servers key
+            $servers = $null
+            if ($mcpJson.PSObject.Properties['mcpServers']) {
+                $servers = $mcpJson.mcpServers
+            } elseif ($mcpJson.PSObject.Properties['servers']) {
+                $servers = $mcpJson.servers
+            }
+            if ($servers) {
+                foreach ($prop in $servers.PSObject.Properties) {
+                    Write-Host "    - $($prop.Name)" -ForegroundColor White
+                }
+            } else {
+                Write-Host "    (present but no servers found)" -ForegroundColor Gray
+            }
+        } catch {
+            Write-Host "    (invalid JSON)" -ForegroundColor Red
+        }
+        Write-Host ""
+    }
+    
+    $separator = "=" * (15 + $displayName.Length)
+    Write-Host "  $separator" -ForegroundColor Cyan
+    Write-Host ""
 }
 
 # Function to load a built-in agent configuration
@@ -2463,6 +2600,12 @@ try {
     # Handle -ListAgents command
     if ($ListAgents) {
         Show-BuiltInAgents
+        exit 0
+    }
+    
+    # Handle -ViewAgent command
+    if (-not [string]::IsNullOrEmpty($ViewAgent)) {
+        Show-AgentInfo -AgentName $ViewAgent
         exit 0
     }
     

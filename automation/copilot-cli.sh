@@ -60,6 +60,7 @@ RESUME=""
 CONTINUE_SESSION="false"
 INIT="false"
 LIST_AGENTS="false"
+VIEW_AGENT=""
 USE_DEFAULTS="false"
 
 # Multi-agent composition options
@@ -101,6 +102,7 @@ QUICK START:
 
 BUILT-IN AGENTS:
     --list-agents                  List all available built-in and custom agents
+    --view-agent NAME              Show detailed configuration for a specific agent
     --agent NAME                   Use an agent by name or path
                                    Examples: code-review, ./my-agents/custom, /path/to/agent
     --agents NAMES                 Run multiple agents sequentially (comma-separated)
@@ -216,6 +218,9 @@ EXAMPLES:
     
     # List all agents (built-in and custom)
     ./copilot-cli.sh --list-agents
+    
+    # View detailed agent configuration
+    ./copilot-cli.sh --view-agent code-review
     
     # Use a pre-built prompt from awesome-copilot
     ./copilot-cli.sh --use-prompt code-review
@@ -1210,6 +1215,181 @@ show_builtin_agents() {
     
     echo ""
     echo "Usage: --agent <name>  (e.g., --agent code-review)"
+    echo "Info:  --view-agent <name> for detailed configuration"
+}
+
+# Function to display detailed agent configuration
+show_agent_info() {
+    local agent_name="$1"
+    
+    if ! get_builtin_agent_config "$agent_name"; then
+        return 1
+    fi
+    
+    local agent_path="$BUILTIN_AGENT_PATH"
+    local display_name
+    display_name=$(basename "$agent_path")
+    
+    echo ""
+    echo "===== Agent: $display_name ====="
+    echo ""
+    
+    # Path
+    echo "  Path:         $agent_path"
+    
+    # Description
+    if [[ -f "${agent_path}/description.txt" ]]; then
+        local desc
+        desc=$(cat "${agent_path}/description.txt" | tr -d '\n')
+        echo "  Description:  $desc"
+    fi
+    echo ""
+    
+    # Files present
+    echo "  Files:"
+    local has_files=false
+    for f in "$agent_path"/*; do
+        if [[ -f "$f" ]]; then
+            echo "    - $(basename "$f")"
+            has_files=true
+        fi
+    done
+    if [[ "$has_files" != "true" ]]; then
+        echo "    (none)"
+    fi
+    echo ""
+    
+    # Properties
+    if [[ -n "$BUILTIN_AGENT_PROPS" ]] && [[ -f "$BUILTIN_AGENT_PROPS" ]]; then
+        echo "  Properties ($(basename "$BUILTIN_AGENT_PROPS")):"
+        while IFS= read -r line; do
+            local trimmed
+            trimmed=$(echo "$line" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+            # Skip comments and empty lines
+            if [[ "$trimmed" == \#* ]] || [[ -z "$trimmed" ]]; then
+                continue
+            fi
+            if [[ "$trimmed" == *=* ]]; then
+                local key="${trimmed%%=*}"
+                local val="${trimmed#*=}"
+                key=$(echo "$key" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                val=$(echo "$val" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                printf "    %-25s = %s\n" "$key" "$val"
+            fi
+        done < "$BUILTIN_AGENT_PROPS"
+        echo ""
+    fi
+    
+    # Agent definition (.agent.md frontmatter)
+    if [[ -n "$BUILTIN_AGENT_FILE" ]] && [[ -f "$BUILTIN_AGENT_FILE" ]]; then
+        local agent_md_name
+        agent_md_name=$(basename "$BUILTIN_AGENT_FILE")
+        echo "  Agent Definition ($agent_md_name):"
+        
+        # Extract frontmatter between --- markers
+        local in_frontmatter=false
+        local frontmatter=""
+        while IFS= read -r line; do
+            if [[ "$line" == "---" ]]; then
+                if [[ "$in_frontmatter" == "true" ]]; then
+                    break
+                else
+                    in_frontmatter=true
+                    continue
+                fi
+            fi
+            if [[ "$in_frontmatter" == "true" ]]; then
+                frontmatter="${frontmatter}${line}"$'\n'
+            fi
+        done < "$BUILTIN_AGENT_FILE"
+        
+        if [[ -n "$frontmatter" ]]; then
+            # Extract name
+            local fm_name
+            fm_name=$(echo "$frontmatter" | grep -m1 '^name:' | sed "s/^name:[[:space:]]*['\"]\{0,1\}//" | sed "s/['\"].*//")
+            if [[ -n "$fm_name" ]]; then
+                echo "    Name:        $fm_name"
+            fi
+            
+            # Extract description
+            local fm_desc
+            fm_desc=$(echo "$frontmatter" | grep -m1 '^description:' | sed "s/^description:[[:space:]]*['\"]\{0,1\}//" | sed "s/['\"].*//")
+            if [[ -n "$fm_desc" ]]; then
+                echo "    Description: $fm_desc"
+            fi
+            
+            # Extract tools (YAML list format: "  - tool" lines after "tools:")
+            local tools_list=""
+            local in_tools=false
+            while IFS= read -r line; do
+                if [[ "$line" =~ ^tools: ]]; then
+                    # Check for inline array
+                    if [[ "$line" =~ \[(.+)\] ]]; then
+                        tools_list=$(echo "${BASH_REMATCH[1]}" | sed "s/['\"]//g" | sed 's/,/, /g')
+                        break
+                    fi
+                    in_tools=true
+                    continue
+                fi
+                if [[ "$in_tools" == "true" ]]; then
+                    if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*(.*) ]]; then
+                        local tool_name
+                        tool_name=$(echo "${BASH_REMATCH[1]}" | sed "s/['\"]//g" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//')
+                        if [[ -n "$tools_list" ]]; then
+                            tools_list="${tools_list}, ${tool_name}"
+                        else
+                            tools_list="$tool_name"
+                        fi
+                    else
+                        break
+                    fi
+                fi
+            done <<< "$frontmatter"
+            
+            if [[ -n "$tools_list" ]]; then
+                echo "    Tools:       $tools_list"
+            fi
+        fi
+        echo ""
+    fi
+    
+    # User prompt preview
+    if [[ -n "$BUILTIN_AGENT_USER_PROMPT" ]] && [[ -f "$BUILTIN_AGENT_USER_PROMPT" ]]; then
+        local prompt_name
+        prompt_name=$(basename "$BUILTIN_AGENT_USER_PROMPT")
+        echo "  User Prompt Preview ($prompt_name):"
+        local prompt_content
+        prompt_content=$(head -c 500 "$BUILTIN_AGENT_USER_PROMPT")
+        local full_size
+        full_size=$(wc -c < "$BUILTIN_AGENT_USER_PROMPT")
+        while IFS= read -r line; do
+            echo "    $line"
+        done <<< "$prompt_content"
+        if [[ "$full_size" -gt 500 ]]; then
+            echo "    ..."
+        fi
+        echo ""
+    fi
+    
+    # MCP config
+    if [[ -f "${agent_path}/mcp-config.json" ]]; then
+        echo "  MCP Servers (mcp-config.json):"
+        # Extract server names using grep
+        local server_names
+        server_names=$(grep -oE '"[a-zA-Z0-9_-]+"\s*:\s*\{' "${agent_path}/mcp-config.json" 2>/dev/null | grep -oE '"[a-zA-Z0-9_-]+"' | tr -d '"' | tail -n +2 | head -10)
+        if [[ -n "$server_names" ]]; then
+            while IFS= read -r sname; do
+                echo "    - $sname"
+            done <<< "$server_names"
+        else
+            echo "    (present but no servers found)"
+        fi
+        echo ""
+    fi
+    
+    local sep_len=$((15 + ${#display_name}))
+    printf "  %${sep_len}s\n" | tr ' ' '='
+    echo ""
 }
 
 # Function to check if agent is a built-in agent and get its config
@@ -2256,6 +2436,10 @@ while [[ $# -gt 0 ]]; do
             LIST_AGENTS="true"
             shift
             ;;
+        --view-agent)
+            VIEW_AGENT="$2"
+            shift 2
+            ;;
         --agents)
             AGENTS="$2"
             shift 2
@@ -2317,6 +2501,12 @@ fi
 # Handle --list-agents command
 if [[ "$LIST_AGENTS" == "true" ]]; then
     show_builtin_agents
+    exit 0
+fi
+
+# Handle --view-agent command
+if [[ -n "$VIEW_AGENT" ]]; then
+    show_agent_info "$VIEW_AGENT"
     exit 0
 fi
 
