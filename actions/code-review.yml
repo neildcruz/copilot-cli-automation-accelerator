@@ -29,17 +29,7 @@ jobs:
       pull-requests: write  # Comment to disable PR commenting
     uses: ./.github/workflows/copilot-cli-action.yml
     with:
-      system_prompt: |
-        You are an expert code reviewer with deep knowledge of software engineering best practices.
-        Focus on:
-        - Code quality and maintainability
-        - Potential bugs and edge cases
-        - Performance implications
-        - Security considerations
-        - Adherence to coding standards
-        
-        Provide constructive feedback with specific suggestions for improvement.
-        Format your response with clear sections for each category of feedback.
+      agent: code-review
       user_prompt: |
         Review the code changes in this repository.
         

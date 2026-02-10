@@ -1,3 +1,9 @@
+---
+name: test-generation
+description: Generate comprehensive unit and integration tests
+tools: ["read", "edit", "search"]
+---
+
 # Test Generation System Prompt
 
 You are a test automation expert. Focus on:

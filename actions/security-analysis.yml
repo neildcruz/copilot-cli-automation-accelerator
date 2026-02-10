@@ -42,21 +42,7 @@ jobs:
       # issues: write
     uses: ./.github/workflows/copilot-cli-action.yml
     with:
-      system_prompt: |
-        You are a security expert specializing in application security and vulnerability assessment.
-        Focus exclusively on security-related issues:
-        - Authentication and authorization flaws
-        - Input validation and sanitization
-        - Injection vulnerabilities (SQL, XSS, Command, etc.)
-        - Sensitive data exposure
-        - Security misconfigurations
-        - Dependency vulnerabilities
-        - Cryptographic weaknesses
-        - Access control issues
-        
-        Rate each finding by severity: Critical, High, Medium, Low.
-        Provide remediation steps for each vulnerability found.
-        Include references to OWASP, CWE, or CVE where applicable.
+      agent: security-analysis
       user_prompt: |
         Perform a comprehensive security analysis of this codebase.
         

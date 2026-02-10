@@ -25,12 +25,12 @@ multi-stage-workflow/
 ├── stage-1-scanner/
 │   ├── copilot-cli.properties
 │   ├── user.prompt.md
-│   ├── system.prompt.md
+│   ├── stage-1-scanner.agent.md
 │   └── description.txt
 └── stage-2-fixer/
     ├── copilot-cli.properties
     ├── user.prompt.md
-    ├── system.prompt.md
+    ├── stage-2-fixer.agent.md
     └── description.txt
 ```
 
@@ -187,7 +187,7 @@ jobs:
 4. **Prompt Design**
    - Be explicit about input/output file names
    - Specify exact format for inter-stage files
-   - Include examples in system prompts
+   - Include examples in agent definition files
 
 ## Troubleshooting
 

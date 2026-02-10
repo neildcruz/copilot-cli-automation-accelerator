@@ -12,7 +12,7 @@ Local automation scripts providing the same functionality as the GitHub Action f
 - **`copilot-cli.ps1`** - PowerShell script for Windows/cross-platform
 - **`copilot-cli.properties`** - Sample configuration file
 - **`user.prompt.md`** - Default user prompt template
-- **`system.prompt.md`** - Default system prompt template
+- **`default.agent.md`** - Default agent definition file (YAML frontmatter + prompt body)
 
 ## 🚀 Quick Start
 
@@ -83,7 +83,7 @@ Multi-agent run results are saved to:
 
 ### Use Default Prompts (Zero-Config)
 
-The default prompt files (`user.prompt.md` and `system.prompt.md`) now include working defaults that provide immediate value. Run a general-purpose code analysis with:
+The default prompt files (`user.prompt.md` and `default.agent.md`) now include working defaults that provide immediate value. Run a general-purpose code analysis with:
 
 ```bash
 # Bash - Use built-in default prompts
@@ -121,7 +121,7 @@ cd /path/to/your/project
 #   my-review/
 #     copilot-cli.properties
 #     user.prompt.md
-#     system.prompt.md
+#     my-review.agent.md
 #     description.txt
 
 # Edit the prompts to match your needs
@@ -196,8 +196,8 @@ chmod +x copilot-cli.sh
 # Basic usage
 ./copilot-cli.sh --prompt "Review the code for issues"
 
-# With system prompt for guided behavior
-./copilot-cli.sh --system-prompt "Focus only on security vulnerabilities" --prompt "Review this code"
+# With an agent for guided behavior
+./copilot-cli.sh --agent security-analysis --prompt "Review this code"
 ```
 
 #### PowerShell (Windows/Cross-platform)
@@ -267,7 +267,7 @@ Create a `.properties` file with key=value pairs:
 ```properties
 # Core settings
 prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+agent.file=default.agent.md
 copilot.model=claude-sonnet-4.5
 auto.install.cli=true
 
@@ -308,7 +308,7 @@ All configuration options can be specified via command line arguments, which ove
 OPTIONS:
     -c, --config FILE               Configuration properties file
     -p, --prompt TEXT              The prompt to execute (required)
-    -s, --system-prompt TEXT       System instructions to guide AI behavior
+    -s, --agent-file FILE         Agent definition file (.agent.md) for AI behavior
     --use-defaults                 Use built-in default prompts for quick analysis
     -t, --github-token TOKEN       GitHub Personal Access Token for authentication
     -m, --model MODEL              AI model (gpt-5, claude-sonnet-4, claude-sonnet-4.5)
@@ -338,7 +338,7 @@ OPTIONS:
 PARAMETERS:
     -Config FILE                    Configuration properties file
     -Prompt TEXT                   The prompt to execute (required)
-    -SystemPrompt TEXT             System instructions to guide AI behavior
+    -AgentFile FILE                Agent definition file (.agent.md) for AI behavior
     -UseDefaults                   Use built-in default prompts for quick analysis
     -GithubToken TOKEN             GitHub Personal Access Token for authentication
     -Model MODEL                   AI model
@@ -711,7 +711,7 @@ Share this output when reporting issues for faster resolution.
 
 # Verify agent directory structure
 ls -la .copilot-agents/my-agent/
-# Should contain: copilot-cli.properties, user.prompt.md, or system.prompt.md
+# Should contain: copilot-cli.properties, user.prompt.md, or *.agent.md
 ```
 
 **Permission errors:**

@@ -13,27 +13,27 @@ examples/
 ├── code-review/              - Code quality and best practices review
 │   ├── code-review-agent.properties
 │   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── code-review.agent.md
 ├── security-analysis/        - Security vulnerability scanning
 │   ├── security-analysis-agent.properties
 │   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── security-analysis.agent.md
 ├── test-generation/          - Unit and integration test generation
 │   ├── test-generation-agent.properties
 │   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── test-generation.agent.md
 ├── documentation-generation/ - Technical documentation creation
 │   ├── documentation-generation-agent.properties
 │   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── documentation-generation.agent.md
 ├── refactoring/              - Code structure improvements
 │   ├── refactoring-agent.properties
 │   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── refactoring.agent.md
 ├── cicd-analysis/            - CI/CD pipeline optimization
 │   ├── cicd-analysis-agent.properties
 │   ├── user.prompt.md
-│   └── system.prompt.md
+│   └── cicd-analysis.agent.md
 └── mcp-config.json           - MCP server configuration example
 ```
 
@@ -75,7 +75,7 @@ Demonstrates agents working together in sequence, with later stages consuming ou
 Performs comprehensive code quality and best practices review.
 
 **Configuration:**
-- Pre-configured user and system prompts in separate files
+- Pre-configured user prompt and agent definition files
 - Full tool permissions enabled
 - 30-minute timeout
 - Uses Claude Sonnet 4.5 model
@@ -334,17 +334,18 @@ cd automation
 
 ## ⚙️ Customization
 
-### Modifying System Prompts
+### Modifying Agent Definition Files
 
-System prompts guide the AI's behavior and expertise. Edit them in the `system.prompt.md` files to:
+Agent definition files (`.agent.md`) define the AI's behavior, expertise, and available tools using YAML frontmatter. Edit them in the `{name}.agent.md` files to:
 - Add specific focus areas
 - Change tone or style
 - Add domain-specific knowledge
 - Modify output format
+- Configure available tools
 
 **Example:**
 ```markdown
-# Custom System Prompt
+# Custom Agent Definition
 
 You are an expert code reviewer specializing in Python.
 Focus on Pythonic patterns, PEP 8 compliance, and type hints.
@@ -377,7 +378,7 @@ Create a new `.properties` file with your custom configuration:
 
 # Core configuration
 prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+agent.file=custom-agent.agent.md
 
 # Model selection
 copilot.model=claude-sonnet-4.5
@@ -630,7 +631,7 @@ cd /path/to/your/project
 # This creates .copilot-agents/my-agent/ with:
 #   - copilot-cli.properties
 #   - user.prompt.md
-#   - system.prompt.md
+#   - my-agent.agent.md
 #   - description.txt
 
 # Edit the prompts to match your needs
@@ -654,7 +655,7 @@ cp -r path/to/automation/examples/code-review/ .copilot-agents/my-code-review/
 # Customize for your needs
 cd .copilot-agents/my-code-review/
 nano user.prompt.md
-nano system.prompt.md
+nano my-code-review.agent.md
 
 # Use your customized agent
 cd ../..
@@ -721,7 +722,7 @@ cd "$(dirname "$0")/.."
 
 ./copilot-cli.sh \
   --prompt-file "examples/[agent-folder]/user.prompt.md" \
-  --system-prompt-file "examples/[agent-folder]/system.prompt.md" \
+  --agent-file "examples/[agent-folder]/[agent-name].agent.md" \
   --model claude-sonnet-4.5 \
   --allow-all-tools true \
   --log-level info \
@@ -739,7 +740,7 @@ Set-Location ".\automation"
 
 .\copilot-cli.ps1 `
   -PromptFile "examples\[agent-folder]\user.prompt.md" `
-  -SystemPromptFile "examples\[agent-folder]\system.prompt.md" `
+  -AgentFile "examples\[agent-folder]\[agent-name].agent.md" `
   -Model "claude-sonnet-4.5" `
   -AllowAllTools "true" `
   -LogLevel "info" `
@@ -753,7 +754,7 @@ Set-Location ".\automation"
 # [Description]
 
 prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+agent.file=[agent-name].agent.md
 
 copilot.model=claude-sonnet-4.5
 allow.all.tools=true

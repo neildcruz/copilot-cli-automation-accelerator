@@ -208,7 +208,7 @@ See [automation/README.md](automation/README.md) for full documentation.
 ## 🔧 Key Features
 
 - **Complete Automation** - Auto-installation of GitHub Copilot CLI, dependency management, environment setup
-- **Flexible Configuration** - Properties files with command-line overrides, system prompts, tool permissions
+- **Flexible Configuration** - Properties files with command-line overrides, agent definitions, tool permissions
 - **MCP Server Support** - Local Python/Node.js servers, HTTP REST, Server-sent events
 - **Enterprise Ready** - Security-focused design, logging, timeout management, authentication
 

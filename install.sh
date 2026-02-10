@@ -383,39 +383,39 @@ declare -a FILES_TO_DOWNLOAD=(
     "automation/copilot-cli.ps1:required"
     "automation/copilot-cli.properties:required"
     "automation/user.prompt.md:optional"
-    "automation/system.prompt.md:optional"
+    "automation/default.agent.md:optional"
     # Example agents
     "automation/examples/README.md:optional"
     "automation/examples/mcp-config.json:optional"
     # Code Review Agent
     "automation/examples/code-review/copilot-cli.properties:optional"
     "automation/examples/code-review/user.prompt.md:optional"
-    "automation/examples/code-review/system.prompt.md:optional"
+    "automation/examples/code-review/code-review.agent.md:optional"
     "automation/examples/code-review/description.txt:optional"
     # Security Analysis Agent
     "automation/examples/security-analysis/copilot-cli.properties:optional"
     "automation/examples/security-analysis/user.prompt.md:optional"
-    "automation/examples/security-analysis/system.prompt.md:optional"
+    "automation/examples/security-analysis/security-analysis.agent.md:optional"
     "automation/examples/security-analysis/description.txt:optional"
     # Test Generation Agent
     "automation/examples/test-generation/copilot-cli.properties:optional"
     "automation/examples/test-generation/user.prompt.md:optional"
-    "automation/examples/test-generation/system.prompt.md:optional"
+    "automation/examples/test-generation/test-generation.agent.md:optional"
     "automation/examples/test-generation/description.txt:optional"
     # Documentation Generation Agent
     "automation/examples/documentation-generation/copilot-cli.properties:optional"
     "automation/examples/documentation-generation/user.prompt.md:optional"
-    "automation/examples/documentation-generation/system.prompt.md:optional"
+    "automation/examples/documentation-generation/documentation-generation.agent.md:optional"
     "automation/examples/documentation-generation/description.txt:optional"
     # Refactoring Agent
     "automation/examples/refactoring/copilot-cli.properties:optional"
     "automation/examples/refactoring/user.prompt.md:optional"
-    "automation/examples/refactoring/system.prompt.md:optional"
+    "automation/examples/refactoring/refactoring.agent.md:optional"
     "automation/examples/refactoring/description.txt:optional"
     # CI/CD Analysis Agent
     "automation/examples/cicd-analysis/copilot-cli.properties:optional"
     "automation/examples/cicd-analysis/user.prompt.md:optional"
-    "automation/examples/cicd-analysis/system.prompt.md:optional"
+    "automation/examples/cicd-analysis/cicd-analysis.agent.md:optional"
     "automation/examples/cicd-analysis/description.txt:optional"
 )
 
@@ -687,7 +687,7 @@ show_post_install_instructions() {
     echo -e "  ${NC}3. Customize configuration:"
     echo -e "     ${NC}• Edit: ${YELLOW}$INSTALL_PATH/automation/copilot-cli.properties${NC}"
     echo -e "     ${NC}• Customize default prompts: ${YELLOW}$INSTALL_PATH/automation/user.prompt.md${NC}"
-    echo -e "     ${NC}• Customize system prompts: ${YELLOW}$INSTALL_PATH/automation/system.prompt.md${NC}"
+    echo -e "     ${NC}• Customize agent definitions: ${YELLOW}$INSTALL_PATH/automation/default.agent.md${NC}"
     echo -e "     ${NC}• Review example configurations in: ${YELLOW}$INSTALL_PATH/automation/examples/${NC}"
     echo ""
     

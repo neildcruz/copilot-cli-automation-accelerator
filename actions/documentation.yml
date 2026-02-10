@@ -50,20 +50,7 @@ jobs:
       # pull-requests: write
     uses: ./.github/workflows/copilot-cli-action.yml
     with:
-      system_prompt: |
-        You are a technical writer with expertise in creating clear, comprehensive documentation.
-        Focus on:
-        - Clear and concise explanations
-        - Proper code examples with syntax highlighting
-        - API documentation standards (JSDoc, docstrings, etc.)
-        - README best practices
-        - Getting started guides
-        - Installation instructions
-        - Usage examples
-        - Troubleshooting sections
-        
-        Use Markdown formatting and follow documentation best practices.
-        Ensure documentation is accessible to developers of all skill levels.
+      agent: documentation-generation
       user_prompt: |
         Analyze this codebase and generate or improve documentation.
         

@@ -6,7 +6,7 @@
 #     copilot-analysis:
 #       uses: ./.github/workflows/copilot-cli-action.yml
 #       with:
-#         system_prompt: "Focus on security issues"
+#         agent: "security-analysis"
 #         user_prompt: "Review the code for vulnerabilities"
 #       secrets: inherit
 
@@ -15,12 +15,16 @@ name: Copilot CLI Automation
 on:
   workflow_call:
     inputs:
-      system_prompt:
-        description: 'System prompt with guidelines for AI behavior'
+      agent:
+        description: 'Name of the built-in agent to use (e.g., code-review, security-analysis, documentation-generation)'
         required: false
         type: string
-        default: |
-          You are a helpful AI assistant. Follow best practices and provide clear, actionable feedback.
+        default: ''
+      agent_file:
+        description: 'Path to a custom .agent.md file (alternative to using a built-in agent)'
+        required: false
+        type: string
+        default: ''
       user_prompt:
         description: 'User prompt describing the task to perform'
         required: false
@@ -55,12 +59,16 @@ on:
 
   workflow_dispatch:
     inputs:
-      system_prompt:
-        description: 'System prompt with guidelines for AI behavior'
+      agent:
+        description: 'Name of the built-in agent to use (e.g., code-review, security-analysis, documentation-generation)'
         required: false
         type: string
-        default: |
-          You are a helpful AI assistant. Follow best practices and provide clear, actionable feedback.
+        default: ''
+      agent_file:
+        description: 'Path to a custom .agent.md file (alternative to using a built-in agent)'
+        required: false
+        type: string
+        default: ''
       user_prompt:
         description: 'User prompt describing the task to perform'
         required: false
@@ -156,24 +164,27 @@ jobs:
           # Make script executable
           chmod +x copilot-cli.sh
           
-          # Create temporary files for prompts to handle multi-line content
-          SYSTEM_PROMPT_FILE=$(mktemp)
+          # Create temporary file for user prompt to handle multi-line content
           USER_PROMPT_FILE=$(mktemp)
-          
-          cat << 'SYSTEM_EOF' > "$SYSTEM_PROMPT_FILE"
-          ${{ inputs.system_prompt }}
-          SYSTEM_EOF
           
           cat << 'USER_EOF' > "$USER_PROMPT_FILE"
           ${{ inputs.user_prompt }}
           USER_EOF
           
-          # Run the copilot-cli.sh script with prompts from files
+          # Build the copilot-cli.sh command with appropriate flags
           # Capture output to both console and variable
           OUTPUT_FILE=$(mktemp)
           
+          AGENT_ARGS=""
+          if [ -n "${{ inputs.agent }}" ]; then
+            AGENT_ARGS="--agent ${{ inputs.agent }}"
+          fi
+          if [ -n "${{ inputs.agent_file }}" ]; then
+            AGENT_ARGS="$AGENT_ARGS --agent-file ${{ inputs.agent_file }}"
+          fi
+          
           ./copilot-cli.sh \
-            --system-prompt-file "$SYSTEM_PROMPT_FILE" \
+            $AGENT_ARGS \
             --prompt-file "$USER_PROMPT_FILE" \
             --config copilot-cli.properties \
             --verbose 2>&1 | tee "$OUTPUT_FILE"
@@ -181,7 +192,7 @@ jobs:
           EXIT_CODE=${PIPESTATUS[0]}
           
           # Clean up temp files
-          rm -f "$SYSTEM_PROMPT_FILE" "$USER_PROMPT_FILE"
+          rm -f "$USER_PROMPT_FILE"
           
           # Read and set output
           # GitHub Actions has a limit on output size, so we truncate if necessary

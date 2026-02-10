@@ -33,7 +33,7 @@ cd your-project/
 #   my-custom-agent/
 #     copilot-cli.properties
 #     user.prompt.md
-#     system.prompt.md
+#     my-custom-agent.agent.md
 #     description.txt
 ```
 
@@ -80,7 +80,7 @@ A custom agent is a directory containing configuration and prompt files:
 my-custom-agent/
 ├── copilot-cli.properties    # Agent configuration
 ├── user.prompt.md             # Main task/instructions
-├── system.prompt.md           # Guidelines and constraints
+├── my-custom-agent.agent.md   # Agent definition (YAML frontmatter + guidelines)
 └── description.txt            # (Optional) One-line description
 ```
 
@@ -93,7 +93,7 @@ Configuration for the agent including model, permissions, and settings.
 ```properties
 # Custom Agent Configuration
 prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+agent.file=my-custom-agent.agent.md
 
 # Model and permissions
 copilot.model=claude-sonnet-4.5
@@ -136,12 +136,21 @@ Perform a comprehensive security review of this codebase:
 Provide severity ratings (Critical/High/Medium/Low) and specific remediation steps.
 ```
 
-#### `system.prompt.md`
+#### `{name}.agent.md`
 
-Guidelines that shape how the agent responds:
+The agent definition file using YAML frontmatter for metadata and markdown for the prompt body:
 
 ```markdown
-# System Prompt: Security Review Agent
+---
+name: security-review
+description: Security expert reviewing code for vulnerabilities
+tools:
+  - read_file
+  - grep_search
+  - list_dir
+---
+
+# Security Review Agent
 
 You are a security expert with deep knowledge of OWASP Top 10 and security best practices.
 
@@ -264,7 +273,7 @@ cp -r automation/examples/code-review/ .copilot-agents/my-code-review/
 # Customize for your needs
 cd .copilot-agents/my-code-review/
 nano user.prompt.md
-nano system.prompt.md
+nano my-code-review.agent.md
 
 # Use it
 ../../automation/copilot-cli.sh --agent my-code-review
@@ -281,14 +290,18 @@ cd .copilot-agents/custom-agent
 # Create config file
 cat > copilot-cli.properties << 'EOF'
 prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+agent.file=custom-agent.agent.md
 copilot.model=claude-sonnet-4.5
 allow.all.tools=true
 EOF
 
 # Create prompt files
 echo "# Your prompt here" > user.prompt.md
-echo "# Your guidelines here" > system.prompt.md
+echo "---" > custom-agent.agent.md
+echo "name: custom-agent" >> custom-agent.agent.md
+echo "description: Your agent description" >> custom-agent.agent.md
+echo "---" >> custom-agent.agent.md
+echo "# Your agent guidelines here" >> custom-agent.agent.md
 echo "Brief description" > description.txt
 ```
 
@@ -577,7 +590,7 @@ Error: Agent 'my-agent' not found
 3. **Verify agent has required files:**
    ```bash
    ls -la .copilot-agents/my-agent/
-   # Should have: copilot-cli.properties OR user.prompt.md OR system.prompt.md
+   # Should have: copilot-cli.properties OR user.prompt.md OR *.agent.md
    ```
 
 4. **Use explicit directory:**
@@ -600,7 +613,7 @@ prompt.file=user.prompt.md
 ```bash
 cd .copilot-agents/my-agent/
 test -f user.prompt.md && echo "✓ User prompt exists" || echo "✗ User prompt missing"
-test -f system.prompt.md && echo "✓ System prompt exists" || echo "✗ System prompt missing"
+test -f *.agent.md && echo "✓ Agent definition exists" || echo "✗ Agent definition missing"
 ```
 
 ### Multiple Agents with Same Name
@@ -673,7 +686,7 @@ git ls-files .copilot-agents/
 - **Don't use absolute paths** in agent configuration files
 - **Don't commit sensitive tokens** in agent configs (use environment variables)
 - **Don't create overly broad agents** - keep them focused
-- **Don't skip the system prompt** - it significantly improves results
+- **Don't skip the agent definition file** - it significantly improves results
 - **Don't hardcode directory paths** - use discovery mechanisms
 
 ---

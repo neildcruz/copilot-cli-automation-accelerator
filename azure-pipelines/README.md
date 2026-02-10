@@ -19,7 +19,7 @@ Azure Pipelines use `azure-pipelines.yml` at the repository root. The templates 
 stages:
   - template: azure-pipelines/copilot-cli-azure.yml
     parameters:
-      systemPrompt: 'automation/system.prompt.md'
+      agent: 'default'
       userPrompt: 'automation/user.prompt.md'
 ```
 

@@ -6,8 +6,7 @@ param(
     [string]$Config = "copilot-cli.properties",
     [string]$Prompt = "",
     [string]$PromptFile = "",
-    [string]$SystemPrompt = "",
-    [string]$SystemPromptFile = "",
+    [string]$AgentFile = "",
     [string]$GithubToken = "",
     [string]$Model = "claude-sonnet-4.5",
     [string]$AutoInstallCli = "true",
@@ -149,8 +148,7 @@ PROMPT OPTIONS:
     -Config FILE                   Configuration properties file (default: copilot-cli.properties)
     -Prompt TEXT                   The prompt to execute (required unless using other prompt options)
     -PromptFile FILE               Load prompt from text/markdown file
-    -SystemPrompt TEXT             System prompt with guidelines to emphasize
-    -SystemPromptFile FILE         Load system prompt from file
+    -AgentFile FILE                Path to a .agent.md file to install and use
     -UseDefaults                   Use built-in default prompts (useful for quick analysis)
 
 MODEL & AGENT OPTIONS:
@@ -227,8 +225,8 @@ EXAMPLES:
     # Basic usage with inline prompt
     .\copilot-cli.ps1 -Prompt "Review the code for security issues"
     
-    # Load prompt from file with system guidelines
-    .\copilot-cli.ps1 -PromptFile task.md -SystemPromptFile guidelines.md
+    # Use an agent with a custom prompt file
+    .\copilot-cli.ps1 -Agent code-review -PromptFile task.md
     
     # Autonomous mode for CI/CD (no interactive questions)
     .\copilot-cli.ps1 -UsePrompt code-review -NoAskUser true -Silent
@@ -271,7 +269,7 @@ CONFIGURATION FILE (copilot-cli.properties):
     use.prompt=code-review
     default.prompt.repo=github/awesome-copilot
     prompt.file=user.prompt.md
-    system.prompt.file=system.prompt.md
+    agent.file=default.agent.md
     
     # Tool permissions
     allow.all.tools=true
@@ -937,7 +935,7 @@ function Initialize-CopilotCliProject {
         
         $configPath = Join-Path $agentDir "copilot-cli.properties"
         $userPromptPath = Join-Path $agentDir "user.prompt.md"
-        $systemPromptPath = Join-Path $agentDir "system.prompt.md"
+        $agentMdPath = Join-Path $agentDir "$AgentName.agent.md"
         $descPath = Join-Path $agentDir "description.txt"
         
         $configContent = @"
@@ -946,7 +944,7 @@ function Initialize-CopilotCliProject {
 
 # Prompt Configuration
 prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+agent.file=$AgentName.agent.md
 
 # Model Selection
 copilot.model=claude-sonnet-4.5
@@ -985,19 +983,15 @@ Analyze this codebase and:
 Provide specific, actionable recommendations.
 "@
 
-        $systemPromptContent = @"
-# System Prompt: $AgentName
-
-<!-- 
-This file contains guidelines and constraints for your custom agent.
-These instructions will be emphasized when executing your prompt.
-
-Use this to:
-- Define the agent's role and expertise
-- Set constraints and boundaries
-- Specify output format requirements
-- Define quality standards
--->
+        $agentMdContent = @"
+---
+name: $AgentName
+description: "Custom agent: $AgentName"
+tools:
+  - read
+  - edit
+  - search
+---
 
 You are an expert code reviewer focused on:
 - Code quality and maintainability
@@ -1014,7 +1008,7 @@ Provide:
         
         $configContent | Set-Content -Path $configPath -Encoding UTF8
         $userPromptContent | Set-Content -Path $userPromptPath -Encoding UTF8  
-        $systemPromptContent | Set-Content -Path $systemPromptPath -Encoding UTF8
+        $agentMdContent | Set-Content -Path $agentMdPath -Encoding UTF8
         $descContent | Set-Content -Path $descPath -Encoding UTF8
         
         Write-Host ""
@@ -1024,7 +1018,7 @@ Provide:
         Write-Host "Files created:" -ForegroundColor Cyan
         Write-Host "  - copilot-cli.properties" -ForegroundColor White
         Write-Host "  - user.prompt.md" -ForegroundColor White
-        Write-Host "  - system.prompt.md" -ForegroundColor White
+        Write-Host "  - $AgentName.agent.md" -ForegroundColor White
         Write-Host "  - description.txt" -ForegroundColor White
         Write-Host ""
         Write-Host "Next steps:" -ForegroundColor Yellow
@@ -1037,7 +1031,7 @@ Provide:
     # Standard project initialization (original behavior)
     $configPath = Join-Path (Get-Location) "copilot-cli.properties"
     $userPromptPath = Join-Path (Get-Location) "user.prompt.md"
-    $systemPromptPath = Join-Path (Get-Location) "system.prompt.md"
+    $agentMdPath = Join-Path (Get-Location) "default.agent.md"
     
     if (Test-Path $configPath) {
         Write-Host "Configuration file already exists: $configPath" -ForegroundColor Yellow
@@ -1052,7 +1046,7 @@ Provide:
 # Use one of: prompt, prompt.file, or use.prompt
 # prompt=Your prompt text here
 prompt.file=user.prompt.md
-system.prompt.file=system.prompt.md
+agent.file=default.agent.md
 
 # Or use a pre-built prompt from awesome-copilot (or custom repo)
 # use.prompt=code-review
@@ -1090,13 +1084,15 @@ Analyze this codebase and provide a summary of:
 3. Potential areas for improvement
 "@
 
-    $systemPromptContent = @"
-# System Prompt
-
-<!-- 
-This file contains guidelines and constraints for Copilot.
-These instructions will be emphasized when executing your prompt.
--->
+    $agentMdContent = @"
+---
+name: default
+description: "Default Copilot CLI agent for code analysis"
+tools:
+  - read
+  - edit
+  - search
+---
 
 You are a helpful AI assistant focused on code quality and best practices.
 Please follow these guidelines:
@@ -1107,12 +1103,12 @@ Please follow these guidelines:
     
     $configContent | Set-Content -Path $configPath -Encoding UTF8
     $userPromptContent | Set-Content -Path $userPromptPath -Encoding UTF8  
-    $systemPromptContent | Set-Content -Path $systemPromptPath -Encoding UTF8
+    $agentMdContent | Set-Content -Path $agentMdPath -Encoding UTF8
     
     Write-Host "Initialized Copilot CLI configuration:" -ForegroundColor Green
     Write-Host "  - $configPath" -ForegroundColor White
     Write-Host "  - $userPromptPath" -ForegroundColor White
-    Write-Host "  - $systemPromptPath" -ForegroundColor White
+    Write-Host "  - $agentMdPath" -ForegroundColor White
     Write-Host ""
     Write-Host "Edit these files and run: .\copilot-cli.ps1" -ForegroundColor Cyan
 }
@@ -1187,7 +1183,7 @@ function Get-BuiltInAgents {
             $hasConfig = (Test-Path (Join-Path $agentDir "copilot-cli.properties")) -or 
                          (Test-Path (Join-Path $agentDir "*.properties"))
             $hasPrompt = (Test-Path (Join-Path $agentDir "user.prompt.md")) -or
-                         (Test-Path (Join-Path $agentDir "system.prompt.md"))
+                         (Test-Path (Join-Path $agentDir "*.agent.md"))
             
             if ($hasConfig -or $hasPrompt) {
                 $description = ""
@@ -1209,6 +1205,39 @@ function Get-BuiltInAgents {
     }
     
     return $agents
+}
+
+# Function to install an .agent.md file to .github/agents/ in the working directory
+function Install-AgentToRepository {
+    param(
+        [string]$AgentFile,
+        [string]$AgentName
+    )
+    
+    if ([string]::IsNullOrEmpty($AgentFile) -or -not (Test-Path $AgentFile)) {
+        Write-Log "No agent file to install or file not found: $AgentFile"
+        return
+    }
+    
+    $agentFileName = Split-Path -Leaf $AgentFile
+    $targetDir = Join-Path (Get-Location) ".github" "agents"
+    $targetFile = Join-Path $targetDir $agentFileName
+    
+    if (Test-Path $targetFile) {
+        Write-Log "Agent file already installed at: $targetFile"
+        return
+    }
+    
+    # Create .github/agents/ directory if it doesn't exist
+    if (-not (Test-Path $targetDir)) {
+        New-Item -ItemType Directory -Path $targetDir -Force | Out-Null
+        Write-Log "Created directory: $targetDir"
+    }
+    
+    # Copy the agent file
+    Copy-Item -Path $AgentFile -Destination $targetFile -Force
+    Write-Host "Installed agent '$AgentName' to: $targetFile" -ForegroundColor Green
+    Write-Log "Copied agent file from $AgentFile to $targetFile"
 }
 
 # Function to display built-in agents list
@@ -1259,11 +1288,11 @@ function Get-BuiltInAgentConfig {
         $hasConfig = (Test-Path (Join-Path $agentPath "copilot-cli.properties")) -or 
                      (Get-ChildItem -Path $agentPath -Filter "*.properties" -ErrorAction SilentlyContinue).Count -gt 0
         $hasPrompt = (Test-Path (Join-Path $agentPath "user.prompt.md")) -or
-                     (Test-Path (Join-Path $agentPath "system.prompt.md"))
+                     ((Get-ChildItem -Path $agentPath -Filter "*.agent.md" -ErrorAction SilentlyContinue).Count -gt 0)
         
         if (-not ($hasConfig -or $hasPrompt)) {
             Write-Host "Error: Directory does not appear to be a valid agent (no config or prompt files found)" -ForegroundColor Red
-            Write-Host "Expected files: copilot-cli.properties, user.prompt.md, or system.prompt.md" -ForegroundColor Gray
+            Write-Host "Expected files: copilot-cli.properties, user.prompt.md, or *.agent.md" -ForegroundColor Gray
             return $null
         }
         
@@ -1272,7 +1301,7 @@ function Get-BuiltInAgentConfig {
             Path = $agentPath
             PropertiesFile = $null
             UserPromptFile = $null
-            SystemPromptFile = $null
+            AgentFile = $null
         }
         
         # Look for properties file
@@ -1292,9 +1321,9 @@ function Get-BuiltInAgentConfig {
             $result.UserPromptFile = $userPrompt
         }
         
-        $systemPrompt = Join-Path $agentPath "system.prompt.md"
-        if (Test-Path $systemPrompt) {
-            $result.SystemPromptFile = $systemPrompt
+        $agentMdFiles = Get-ChildItem -Path $agentPath -Filter "*.agent.md" -ErrorAction SilentlyContinue | Select-Object -First 1
+        if ($agentMdFiles) {
+            $result.AgentFile = $agentMdFiles.FullName
         }
         
         return $result
@@ -1324,7 +1353,7 @@ function Get-BuiltInAgentConfig {
         Path = $agent.Path
         PropertiesFile = $null
         UserPromptFile = $null
-        SystemPromptFile = $null
+        AgentFile = $null
     }
     
     # Look for properties file
@@ -1345,9 +1374,9 @@ function Get-BuiltInAgentConfig {
         $result.UserPromptFile = $userPrompt
     }
     
-    $systemPrompt = Join-Path $agent.Path "system.prompt.md"
-    if (Test-Path $systemPrompt) {
-        $result.SystemPromptFile = $systemPrompt
+    $agentMdFiles = Get-ChildItem -Path $agent.Path -Filter "*.agent.md" -ErrorAction SilentlyContinue | Select-Object -First 1
+    if ($agentMdFiles) {
+        $result.AgentFile = $agentMdFiles.FullName
     }
     
     return $result
@@ -1432,9 +1461,9 @@ function Invoke-SingleAgent {
     # Store original values
     $origConfig = $script:Config
     $origPromptFile = $script:PromptFile
-    $origSystemPromptFile = $script:SystemPromptFile
+    $origAgentFile = $script:AgentFile
     $origPrompt = $script:Prompt
-    $origSystemPrompt = $script:SystemPrompt
+    $origAgent = $script:Agent
     
     # Apply agent configuration
     if ($builtInConfig.PropertiesFile) {
@@ -1447,9 +1476,10 @@ function Invoke-SingleAgent {
         $script:Prompt = ""
     }
     
-    if ($builtInConfig.SystemPromptFile) {
-        $script:SystemPromptFile = $builtInConfig.SystemPromptFile
-        $script:SystemPrompt = ""
+    if ($builtInConfig.AgentFile) {
+        $script:AgentFile = $builtInConfig.AgentFile
+        Install-AgentToRepository -AgentFile $script:AgentFile -AgentName $AgentName
+        $script:Agent = $AgentName
     }
     
     # Load prompts from files
@@ -1457,12 +1487,6 @@ function Invoke-SingleAgent {
         $resolvedPromptFile = Resolve-FilePath -FilePath $script:PromptFile
         if (Test-Path $resolvedPromptFile) {
             $script:Prompt = Get-Content $resolvedPromptFile -Raw
-        }
-    }
-    if ([string]::IsNullOrEmpty($script:SystemPrompt) -and -not [string]::IsNullOrEmpty($script:SystemPromptFile)) {
-        $resolvedSystemFile = Resolve-FilePath -FilePath $script:SystemPromptFile
-        if (Test-Path $resolvedSystemFile) {
-            $script:SystemPrompt = Get-Content $resolvedSystemFile -Raw
         }
     }
     
@@ -1547,9 +1571,9 @@ function Invoke-SingleAgent {
     # Restore original values
     $script:Config = $origConfig
     $script:PromptFile = $origPromptFile
-    $script:SystemPromptFile = $origSystemPromptFile
+    $script:AgentFile = $origAgentFile
     $script:Prompt = $origPrompt
-    $script:SystemPrompt = $origSystemPrompt
+    $script:Agent = $origAgent
     
     # Report status
     if ($exitCode -eq 0) {
@@ -1719,11 +1743,8 @@ function Load-Config {
         if ($config.ContainsKey("prompt.file") -and [string]::IsNullOrEmpty($script:PromptFile)) {
             $script:PromptFile = $config["prompt.file"]
         }
-        if ($config.ContainsKey("system.prompt") -and [string]::IsNullOrEmpty($script:SystemPrompt)) {
-            $script:SystemPrompt = $config["system.prompt"]
-        }
-        if ($config.ContainsKey("system.prompt.file") -and [string]::IsNullOrEmpty($script:SystemPromptFile)) {
-            $script:SystemPromptFile = $config["system.prompt.file"]
+        if ($config.ContainsKey("agent.file") -and [string]::IsNullOrEmpty($script:AgentFile)) {
+            $script:AgentFile = $config["agent.file"]
         }
         if ($config.ContainsKey("github.token") -and [string]::IsNullOrEmpty($script:GithubToken)) {
             $script:GithubToken = $config["github.token"]
@@ -1930,11 +1951,8 @@ function Test-McpConfig {
 
 # Function to build copilot command
 function Build-CopilotCommand {
-    # Combine system prompt and user prompt
+    # Use the user prompt directly (agent behavior is handled by .agent.md in .github/agents/)
     $fullPrompt = $Prompt
-    if (-not [string]::IsNullOrEmpty($SystemPrompt)) {
-        $fullPrompt = "IMPORTANT: Please follow these guidelines strictly: $SystemPrompt`n`n$Prompt"
-    }
     
     # Use single quotes to avoid PowerShell parsing issues with parentheses
     $escapedPrompt = $fullPrompt -replace "'", "''"
@@ -2205,13 +2223,14 @@ try {
             if ([string]::IsNullOrEmpty($PromptFile) -and $builtInConfig.UserPromptFile) {
                 $PromptFile = $builtInConfig.UserPromptFile
             }
-            if ([string]::IsNullOrEmpty($SystemPromptFile) -and $builtInConfig.SystemPromptFile) {
-                $SystemPromptFile = $builtInConfig.SystemPromptFile
+            
+            # Install the .agent.md file to .github/agents/ in the working directory
+            if ($builtInConfig.AgentFile) {
+                $AgentFile = $builtInConfig.AgentFile
+                Install-AgentToRepository -AgentFile $AgentFile -AgentName $Agent
             }
             
-            # Clear the Agent variable so it doesn't get passed to copilot CLI
-            # (built-in agents are handled via config/prompts, not --agent flag)
-            $Agent = ""
+            # Keep the Agent variable so --agent flag is passed to copilot CLI
         }
     }
     
@@ -2280,14 +2299,30 @@ try {
         }
     }
     
-    # Handle -UseDefaults: use built-in default prompt files
+    # Handle -UseDefaults: use built-in default prompt files and agent
     if ($UseDefaults) {
         Write-Host "Using built-in default prompts" -ForegroundColor Cyan
         $PromptFile = "user.prompt.md"
-        $SystemPromptFile = "system.prompt.md"
+        $AgentFile = "default.agent.md"
         # Clear any inline prompts to force loading from files
         $Prompt = ""
-        $SystemPrompt = ""
+        # Install default agent
+        $resolvedAgentFile = Resolve-FilePath -FilePath $AgentFile
+        if (Test-Path $resolvedAgentFile) {
+            Install-AgentToRepository -AgentFile $resolvedAgentFile -AgentName "default"
+            $Agent = "default"
+        }
+    }
+    
+    # Install agent file if specified via config but not yet installed
+    if (-not [string]::IsNullOrEmpty($AgentFile) -and [string]::IsNullOrEmpty($Agent)) {
+        $resolvedAgentFile = Resolve-FilePath -FilePath $AgentFile
+        if (Test-Path $resolvedAgentFile) {
+            # Extract agent name from the filename (e.g., code-review.agent.md -> code-review)
+            $agentBaseName = (Split-Path -Leaf $resolvedAgentFile) -replace '\.agent\.md$', ''
+            Install-AgentToRepository -AgentFile $resolvedAgentFile -AgentName $agentBaseName
+            $Agent = $agentBaseName
+        }
     }
     
     # Load prompts from files if specified (command line params override)
@@ -2297,18 +2332,9 @@ try {
         $Prompt = Load-FileContent -FilePath $resolvedPromptFile -ContentType "Prompt"
     }
     
-    # Load system prompt from file if SystemPromptFile is specified and SystemPrompt is empty
-    if ([string]::IsNullOrEmpty($SystemPrompt) -and -not [string]::IsNullOrEmpty($SystemPromptFile)) {
-        $resolvedSystemPromptFile = Resolve-FilePath -FilePath $SystemPromptFile
-        $SystemPrompt = Load-FileContent -FilePath $resolvedSystemPromptFile -ContentType "System prompt"
-    }
-    
     # Validate that prompts have meaningful content (not just comments)
     if (-not [string]::IsNullOrEmpty($Prompt)) {
         $null = Test-PromptHasContent -Content $Prompt -ContentType "User prompt"
-    }
-    if (-not [string]::IsNullOrEmpty($SystemPrompt)) {
-        $null = Test-PromptHasContent -Content $SystemPrompt -ContentType "System prompt"
     }
     
     # Validate required parameters

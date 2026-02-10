@@ -26,7 +26,7 @@ workflows:
   analysis:
     jobs:
       - copilot-cli/analyze:
-          system-prompt: automation/system.prompt.md
+          agent: default
           user-prompt: automation/user.prompt.md
 ```
 

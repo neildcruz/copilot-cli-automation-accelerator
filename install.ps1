@@ -524,39 +524,39 @@ $FilesToDownload = @(
     @{ Path = "automation/copilot-cli.sh"; Required = $true },
     @{ Path = "automation/copilot-cli.properties"; Required = $true },
     @{ Path = "automation/user.prompt.md"; Required = $false },
-    @{ Path = "automation/system.prompt.md"; Required = $false },
+    @{ Path = "automation/default.agent.md"; Required = $false },
     # Example agents
     @{ Path = "automation/examples/README.md"; Required = $false },
     @{ Path = "automation/examples/mcp-config.json"; Required = $false },
     # Code Review Agent
     @{ Path = "automation/examples/code-review/copilot-cli.properties"; Required = $false },
     @{ Path = "automation/examples/code-review/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/code-review/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/code-review/code-review.agent.md"; Required = $false },
     @{ Path = "automation/examples/code-review/description.txt"; Required = $false },
     # Security Analysis Agent
     @{ Path = "automation/examples/security-analysis/copilot-cli.properties"; Required = $false },
     @{ Path = "automation/examples/security-analysis/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/security-analysis/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/security-analysis/security-analysis.agent.md"; Required = $false },
     @{ Path = "automation/examples/security-analysis/description.txt"; Required = $false },
     # Test Generation Agent
     @{ Path = "automation/examples/test-generation/copilot-cli.properties"; Required = $false },
     @{ Path = "automation/examples/test-generation/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/test-generation/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/test-generation/test-generation.agent.md"; Required = $false },
     @{ Path = "automation/examples/test-generation/description.txt"; Required = $false },
     # Documentation Generation Agent
     @{ Path = "automation/examples/documentation-generation/copilot-cli.properties"; Required = $false },
     @{ Path = "automation/examples/documentation-generation/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/documentation-generation/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/documentation-generation/documentation-generation.agent.md"; Required = $false },
     @{ Path = "automation/examples/documentation-generation/description.txt"; Required = $false },
     # Refactoring Agent
     @{ Path = "automation/examples/refactoring/copilot-cli.properties"; Required = $false },
     @{ Path = "automation/examples/refactoring/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/refactoring/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/refactoring/refactoring.agent.md"; Required = $false },
     @{ Path = "automation/examples/refactoring/description.txt"; Required = $false },
     # CI/CD Analysis Agent
     @{ Path = "automation/examples/cicd-analysis/copilot-cli.properties"; Required = $false },
     @{ Path = "automation/examples/cicd-analysis/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/cicd-analysis/system.prompt.md"; Required = $false },
+    @{ Path = "automation/examples/cicd-analysis/cicd-analysis.agent.md"; Required = $false },
     @{ Path = "automation/examples/cicd-analysis/description.txt"; Required = $false }
 )
 
@@ -965,8 +965,8 @@ function Show-PostInstallInstructions {
     Write-Host "$(Join-Path $InstallPath 'automation/copilot-cli.properties')" -ForegroundColor Yellow
     Write-Host "     - Customize default prompts: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/user.prompt.md')" -ForegroundColor Yellow
-    Write-Host "     - Customize system prompts: " -ForegroundColor Gray -NoNewline
-    Write-Host "$(Join-Path $InstallPath 'automation/system.prompt.md')" -ForegroundColor Yellow
+    Write-Host "     - Customize agent definitions: " -ForegroundColor Gray -NoNewline
+    Write-Host "$(Join-Path $InstallPath 'automation/default.agent.md')" -ForegroundColor Yellow
     Write-Host "     - Review example configurations in: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/examples/')" -ForegroundColor Yellow
     Write-Host ""

@@ -25,7 +25,7 @@ pipeline {
         stage('Copilot CLI Analysis') {
             steps {
                 copilotCliAnalysis(
-                    systemPrompt: 'automation/system.prompt.md',
+                    agent: 'default',
                     userPrompt: 'automation/user.prompt.md'
                 )
             }

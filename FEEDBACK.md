@@ -71,7 +71,7 @@ These changes add a "happy path" while keeping all advanced options accessible v
 **Impact Area:** Configuration Files
 
 **Current State:**
-Both `automation/system.prompt.md` and `automation/user.prompt.md` are essentially empty shells with only HTML comments. Users who run the script with defaults get no meaningful behavior.
+Both `automation/default.agent.md` and `automation/user.prompt.md` are essentially empty shells with only HTML comments. Users who run the script with defaults get no meaningful behavior.
 
 **User Impact:**
 - Users expect "sensible defaults" but get nothing
@@ -86,7 +86,7 @@ Empty defaults signal "incomplete product" rather than "customizable platform."
 1. **Provide working default prompts**:
 
 ```markdown
-<!-- system.prompt.md -->
+<!-- default.agent.md -->
 # System Instructions
 
 You are a senior software engineer performing code analysis. When reviewing code:
@@ -117,7 +117,7 @@ Focus on the most impactful findings rather than exhaustive coverage.
 2. **Add a `--use-defaults` flag** that ships with pre-configured, useful prompts
 
 **Code References:**
-- `automation/system.prompt.md` - Empty template
+- `automation/default.agent.md` - Empty template
 - `automation/user.prompt.md` - Empty template
 
 **Preserving Complexity:**

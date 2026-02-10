@@ -119,7 +119,7 @@ cd /path/to/your/project
 # This creates .copilot-agents/my-agent/ with templates
 # Edit the prompts:
 #   .copilot-agents/my-agent/user.prompt.md
-#   .copilot-agents/my-agent/system.prompt.md
+#   .copilot-agents/my-agent/my-agent.agent.md
 
 # Run your custom agent
 /path/to/copilot-cli.sh --agent my-agent
