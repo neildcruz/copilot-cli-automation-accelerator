@@ -13,6 +13,7 @@ UPDATE=false
 BRANCH="main"
 REPOSITORY="neildcruz/copilot-cli-automation-accelerator"
 VERBOSE=false
+SKIP_EXAMPLES=false
 GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
 # Color functions for output
@@ -298,6 +299,7 @@ OPTIONS:
     -b, --branch BRANCH   Git branch to download from (default: main)
     -r, --repo REPO       GitHub repository in format 'owner/repo' 
                          (default: neildcruz/copilot-cli-automation-accelerator)
+    -s, --skip-examples   Skip downloading built-in example agents
     -t, --token TOKEN     GitHub personal access token for private repository access
     -v, --verbose         Enable verbose output
     -h, --help            Show this help message
@@ -312,6 +314,7 @@ EXAMPLES:
     $0 --path ~/my-tools --update         # Update installation in ~/my-tools
     $0 --token ghp_xxx...                 # Install with explicit token
     $0 --branch develop --verbose         # Install from develop branch with verbose output
+    $0 --skip-examples                    # Install without example agents
 
 EOF
 }
@@ -352,6 +355,10 @@ parse_args() {
                 VERBOSE=true
                 shift
                 ;;
+            -s|--skip-examples)
+                SKIP_EXAMPLES=true
+                shift
+                ;;
             -h|--help)
                 show_usage
                 exit 0
@@ -374,49 +381,64 @@ parse_args() {
     fi
 }
 
-# Files to download with their paths (matches PowerShell install script)
+# Files to download with their paths
+# Format: "path:required|optional:core|example"
+# The third field marks whether a file is a core file or an example agent file.
+# Example files are skipped when --skip-examples is set.
 declare -a FILES_TO_DOWNLOAD=(
-    "README.md:required"
-    "INDEX.md:required"
-    "automation/README.md:required"
-    "automation/copilot-cli.sh:required"
-    "automation/copilot-cli.ps1:required"
-    "automation/copilot-cli.properties:required"
-    "automation/user.prompt.md:optional"
-    "automation/default.agent.md:optional"
-    # Example agents
-    "automation/examples/README.md:optional"
-    "automation/examples/mcp-config.json:optional"
+    # Core files
+    "README.md:required:core"
+    "INDEX.md:required:core"
+    "automation/README.md:required:core"
+    "automation/copilot-cli.sh:required:core"
+    "automation/copilot-cli.ps1:required:core"
+    "automation/copilot-cli.properties:required:core"
+    "automation/user.prompt.md:optional:core"
+    "automation/default.agent.md:optional:core"
+    # Example agents (skipped when --skip-examples is set)
+    "automation/examples/README.md:optional:example"
+    "automation/examples/mcp-config.json:optional:example"
     # Code Review Agent
-    "automation/examples/code-review/copilot-cli.properties:optional"
-    "automation/examples/code-review/user.prompt.md:optional"
-    "automation/examples/code-review/code-review.agent.md:optional"
-    "automation/examples/code-review/description.txt:optional"
+    "automation/examples/code-review/copilot-cli.properties:optional:example"
+    "automation/examples/code-review/user.prompt.md:optional:example"
+    "automation/examples/code-review/code-review.agent.md:optional:example"
+    "automation/examples/code-review/description.txt:optional:example"
+    "automation/examples/code-review/mcp-config.json:optional:example"
     # Security Analysis Agent
-    "automation/examples/security-analysis/copilot-cli.properties:optional"
-    "automation/examples/security-analysis/user.prompt.md:optional"
-    "automation/examples/security-analysis/security-analysis.agent.md:optional"
-    "automation/examples/security-analysis/description.txt:optional"
+    "automation/examples/security-analysis/copilot-cli.properties:optional:example"
+    "automation/examples/security-analysis/user.prompt.md:optional:example"
+    "automation/examples/security-analysis/security-analysis.agent.md:optional:example"
+    "automation/examples/security-analysis/description.txt:optional:example"
     # Test Generation Agent
-    "automation/examples/test-generation/copilot-cli.properties:optional"
-    "automation/examples/test-generation/user.prompt.md:optional"
-    "automation/examples/test-generation/test-generation.agent.md:optional"
-    "automation/examples/test-generation/description.txt:optional"
+    "automation/examples/test-generation/copilot-cli.properties:optional:example"
+    "automation/examples/test-generation/user.prompt.md:optional:example"
+    "automation/examples/test-generation/test-generation.agent.md:optional:example"
+    "automation/examples/test-generation/description.txt:optional:example"
     # Documentation Generation Agent
-    "automation/examples/documentation-generation/copilot-cli.properties:optional"
-    "automation/examples/documentation-generation/user.prompt.md:optional"
-    "automation/examples/documentation-generation/documentation-generation.agent.md:optional"
-    "automation/examples/documentation-generation/description.txt:optional"
+    "automation/examples/documentation-generation/copilot-cli.properties:optional:example"
+    "automation/examples/documentation-generation/user.prompt.md:optional:example"
+    "automation/examples/documentation-generation/documentation-generation.agent.md:optional:example"
+    "automation/examples/documentation-generation/description.txt:optional:example"
     # Refactoring Agent
-    "automation/examples/refactoring/copilot-cli.properties:optional"
-    "automation/examples/refactoring/user.prompt.md:optional"
-    "automation/examples/refactoring/refactoring.agent.md:optional"
-    "automation/examples/refactoring/description.txt:optional"
+    "automation/examples/refactoring/copilot-cli.properties:optional:example"
+    "automation/examples/refactoring/user.prompt.md:optional:example"
+    "automation/examples/refactoring/refactoring.agent.md:optional:example"
+    "automation/examples/refactoring/description.txt:optional:example"
     # CI/CD Analysis Agent
-    "automation/examples/cicd-analysis/copilot-cli.properties:optional"
-    "automation/examples/cicd-analysis/user.prompt.md:optional"
-    "automation/examples/cicd-analysis/cicd-analysis.agent.md:optional"
-    "automation/examples/cicd-analysis/description.txt:optional"
+    "automation/examples/cicd-analysis/copilot-cli.properties:optional:example"
+    "automation/examples/cicd-analysis/user.prompt.md:optional:example"
+    "automation/examples/cicd-analysis/cicd-analysis.agent.md:optional:example"
+    "automation/examples/cicd-analysis/description.txt:optional:example"
+    # Multi-Stage Workflow
+    "automation/examples/multi-stage-workflow/README.md:optional:example"
+    "automation/examples/multi-stage-workflow/stage-1-scanner/copilot-cli.properties:optional:example"
+    "automation/examples/multi-stage-workflow/stage-1-scanner/user.prompt.md:optional:example"
+    "automation/examples/multi-stage-workflow/stage-1-scanner/stage-1-scanner.agent.md:optional:example"
+    "automation/examples/multi-stage-workflow/stage-1-scanner/description.txt:optional:example"
+    "automation/examples/multi-stage-workflow/stage-2-fixer/copilot-cli.properties:optional:example"
+    "automation/examples/multi-stage-workflow/stage-2-fixer/user.prompt.md:optional:example"
+    "automation/examples/multi-stage-workflow/stage-2-fixer/stage-2-fixer.agent.md:optional:example"
+    "automation/examples/multi-stage-workflow/stage-2-fixer/description.txt:optional:example"
 )
 
 # Check prerequisites
@@ -688,7 +710,9 @@ show_post_install_instructions() {
     echo -e "     ${NC}• Edit: ${YELLOW}$INSTALL_PATH/automation/copilot-cli.properties${NC}"
     echo -e "     ${NC}• Customize default prompts: ${YELLOW}$INSTALL_PATH/automation/user.prompt.md${NC}"
     echo -e "     ${NC}• Customize agent definitions: ${YELLOW}$INSTALL_PATH/automation/default.agent.md${NC}"
-    echo -e "     ${NC}• Review example configurations in: ${YELLOW}$INSTALL_PATH/automation/examples/${NC}"
+    if [[ "$SKIP_EXAMPLES" != true ]]; then
+        echo -e "     ${NC}• Review example configurations in: ${YELLOW}$INSTALL_PATH/automation/examples/${NC}"
+    fi
     echo ""
     
     echo -e "  ${NC}4. Test the installation:"
@@ -739,10 +763,23 @@ main() {
     print_step "Downloading files from repository..."
     local download_count=0
     local failed_count=0
+    local skipped_examples=0
     
     for file_info in "${FILES_TO_DOWNLOAD[@]}"; do
-        local file_path="${file_info%%:*}"
-        local is_required="${file_info##*:}"
+        # Parse the 3-field format: path:required|optional:core|example
+        local file_path
+        local is_required
+        local file_type
+        file_path=$(echo "$file_info" | cut -d: -f1)
+        is_required=$(echo "$file_info" | cut -d: -f2)
+        file_type=$(echo "$file_info" | cut -d: -f3)
+        
+        # Skip example files when --skip-examples is set
+        if [[ "$SKIP_EXAMPLES" == true && "$file_type" == "example" ]]; then
+            skipped_examples=$((skipped_examples + 1))
+            continue
+        fi
+        
         local destination_path="$INSTALL_PATH/$file_path"
         
         if download_file "$file_path" "$destination_path" "$is_required" "$repo_visibility"; then
@@ -765,6 +802,9 @@ main() {
     done
     
     print_success "Downloaded $download_count files successfully"
+    if [[ $skipped_examples -gt 0 ]]; then
+        print_info "Skipped $skipped_examples example agent files (--skip-examples flag set)"
+    fi
     if [[ $failed_count -gt 0 ]]; then
         print_warning "$failed_count optional files could not be downloaded"
     fi

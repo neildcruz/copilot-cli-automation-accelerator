@@ -22,6 +22,10 @@
 .PARAMETER Repository
     GitHub repository in format 'owner/repo'. Default: 'neildcruz/copilot-cli-automation-accelerator'
 
+.PARAMETER SkipExamples
+    Skip downloading built-in example agents. Useful for minimal installations
+    or when using custom/remote agent repositories instead.
+
 .EXAMPLE
     .\install.ps1
     
@@ -30,6 +34,9 @@
     
 .EXAMPLE
     .\install.ps1 -InstallPath "C:\Tools\copilot-automation" -Update
+
+.EXAMPLE
+    .\install.ps1 -SkipExamples
 #>
 
 param(
@@ -38,7 +45,8 @@ param(
     [string]$Mode = 'current',
     [switch]$Update,
     [string]$Branch = 'main',
-    [string]$Repository = 'neildcruz/copilot-cli-automation-accelerator'
+    [string]$Repository = 'neildcruz/copilot-cli-automation-accelerator',
+    [switch]$SkipExamples
 )
 
 # Configuration
@@ -517,47 +525,61 @@ if (-not $InstallPath) {
 }
 
 # Files to download with their paths
+# IsExample = $true means the file is part of the example agents and can be skipped with -SkipExamples
 $FilesToDownload = @(
-    @{ Path = "README.md"; Required = $true },
-    @{ Path = "automation/README.md"; Required = $true },
-    @{ Path = "automation/copilot-cli.ps1"; Required = $true },
-    @{ Path = "automation/copilot-cli.sh"; Required = $true },
-    @{ Path = "automation/copilot-cli.properties"; Required = $true },
-    @{ Path = "automation/user.prompt.md"; Required = $false },
-    @{ Path = "automation/default.agent.md"; Required = $false },
-    # Example agents
-    @{ Path = "automation/examples/README.md"; Required = $false },
-    @{ Path = "automation/examples/mcp-config.json"; Required = $false },
+    # Core files
+    @{ Path = "README.md"; Required = $true; IsExample = $false },
+    @{ Path = "INDEX.md"; Required = $true; IsExample = $false },
+    @{ Path = "automation/README.md"; Required = $true; IsExample = $false },
+    @{ Path = "automation/copilot-cli.ps1"; Required = $true; IsExample = $false },
+    @{ Path = "automation/copilot-cli.sh"; Required = $true; IsExample = $false },
+    @{ Path = "automation/copilot-cli.properties"; Required = $true; IsExample = $false },
+    @{ Path = "automation/user.prompt.md"; Required = $false; IsExample = $false },
+    @{ Path = "automation/default.agent.md"; Required = $false; IsExample = $false },
+    # Example agents (skipped when -SkipExamples is set)
+    @{ Path = "automation/examples/README.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/mcp-config.json"; Required = $false; IsExample = $true },
     # Code Review Agent
-    @{ Path = "automation/examples/code-review/copilot-cli.properties"; Required = $false },
-    @{ Path = "automation/examples/code-review/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/code-review/code-review.agent.md"; Required = $false },
-    @{ Path = "automation/examples/code-review/description.txt"; Required = $false },
+    @{ Path = "automation/examples/code-review/copilot-cli.properties"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/code-review/user.prompt.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/code-review/code-review.agent.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/code-review/description.txt"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/code-review/mcp-config.json"; Required = $false; IsExample = $true },
     # Security Analysis Agent
-    @{ Path = "automation/examples/security-analysis/copilot-cli.properties"; Required = $false },
-    @{ Path = "automation/examples/security-analysis/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/security-analysis/security-analysis.agent.md"; Required = $false },
-    @{ Path = "automation/examples/security-analysis/description.txt"; Required = $false },
+    @{ Path = "automation/examples/security-analysis/copilot-cli.properties"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/security-analysis/user.prompt.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/security-analysis/security-analysis.agent.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/security-analysis/description.txt"; Required = $false; IsExample = $true },
     # Test Generation Agent
-    @{ Path = "automation/examples/test-generation/copilot-cli.properties"; Required = $false },
-    @{ Path = "automation/examples/test-generation/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/test-generation/test-generation.agent.md"; Required = $false },
-    @{ Path = "automation/examples/test-generation/description.txt"; Required = $false },
+    @{ Path = "automation/examples/test-generation/copilot-cli.properties"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/test-generation/user.prompt.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/test-generation/test-generation.agent.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/test-generation/description.txt"; Required = $false; IsExample = $true },
     # Documentation Generation Agent
-    @{ Path = "automation/examples/documentation-generation/copilot-cli.properties"; Required = $false },
-    @{ Path = "automation/examples/documentation-generation/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/documentation-generation/documentation-generation.agent.md"; Required = $false },
-    @{ Path = "automation/examples/documentation-generation/description.txt"; Required = $false },
+    @{ Path = "automation/examples/documentation-generation/copilot-cli.properties"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/documentation-generation/user.prompt.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/documentation-generation/documentation-generation.agent.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/documentation-generation/description.txt"; Required = $false; IsExample = $true },
     # Refactoring Agent
-    @{ Path = "automation/examples/refactoring/copilot-cli.properties"; Required = $false },
-    @{ Path = "automation/examples/refactoring/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/refactoring/refactoring.agent.md"; Required = $false },
-    @{ Path = "automation/examples/refactoring/description.txt"; Required = $false },
+    @{ Path = "automation/examples/refactoring/copilot-cli.properties"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/refactoring/user.prompt.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/refactoring/refactoring.agent.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/refactoring/description.txt"; Required = $false; IsExample = $true },
     # CI/CD Analysis Agent
-    @{ Path = "automation/examples/cicd-analysis/copilot-cli.properties"; Required = $false },
-    @{ Path = "automation/examples/cicd-analysis/user.prompt.md"; Required = $false },
-    @{ Path = "automation/examples/cicd-analysis/cicd-analysis.agent.md"; Required = $false },
-    @{ Path = "automation/examples/cicd-analysis/description.txt"; Required = $false }
+    @{ Path = "automation/examples/cicd-analysis/copilot-cli.properties"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/cicd-analysis/user.prompt.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/cicd-analysis/cicd-analysis.agent.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/cicd-analysis/description.txt"; Required = $false; IsExample = $true },
+    # Multi-Stage Workflow
+    @{ Path = "automation/examples/multi-stage-workflow/README.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/multi-stage-workflow/stage-1-scanner/copilot-cli.properties"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/multi-stage-workflow/stage-1-scanner/user.prompt.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/multi-stage-workflow/stage-1-scanner/stage-1-scanner.agent.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/multi-stage-workflow/stage-1-scanner/description.txt"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/multi-stage-workflow/stage-2-fixer/copilot-cli.properties"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/multi-stage-workflow/stage-2-fixer/user.prompt.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/multi-stage-workflow/stage-2-fixer/stage-2-fixer.agent.md"; Required = $false; IsExample = $true },
+    @{ Path = "automation/examples/multi-stage-workflow/stage-2-fixer/description.txt"; Required = $false; IsExample = $true }
 )
 
 function Test-Prerequisites {
@@ -967,8 +989,10 @@ function Show-PostInstallInstructions {
     Write-Host "$(Join-Path $InstallPath 'automation/user.prompt.md')" -ForegroundColor Yellow
     Write-Host "     - Customize agent definitions: " -ForegroundColor Gray -NoNewline
     Write-Host "$(Join-Path $InstallPath 'automation/default.agent.md')" -ForegroundColor Yellow
-    Write-Host "     - Review example configurations in: " -ForegroundColor Gray -NoNewline
-    Write-Host "$(Join-Path $InstallPath 'automation/examples/')" -ForegroundColor Yellow
+    if (-not $SkipExamples) {
+        Write-Host "     - Review example configurations in: " -ForegroundColor Gray -NoNewline
+        Write-Host "$(Join-Path $InstallPath 'automation/examples/')" -ForegroundColor Yellow
+    }
     Write-Host ""
     $stepNumber++
     
@@ -1027,8 +1051,15 @@ function Main {
         Write-Step "Downloading files from repository..."
         $downloadCount = 0
         $failedCount = 0
+        $skippedExamples = 0
         
         foreach ($file in $FilesToDownload) {
+            # Skip example files when -SkipExamples is set
+            if ($SkipExamples -and $file.IsExample) {
+                $skippedExamples++
+                continue
+            }
+            
             $destinationPath = Join-Path $InstallPath $file.Path
             try {
                 $success = Download-File -FilePath $file.Path -DestinationPath $destinationPath -Required $file.Required -IsPrivate $repoInfo.IsPrivate
@@ -1052,6 +1083,9 @@ function Main {
         }
         
         Write-Success "Downloaded $downloadCount files successfully"
+        if ($skippedExamples -gt 0) {
+            Write-Info "Skipped $skippedExamples example agent files (-SkipExamples flag set)"
+        }
         if ($failedCount -gt 0) {
             Write-Warning "$failedCount optional files could not be downloaded"
         }

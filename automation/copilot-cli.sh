@@ -70,6 +70,10 @@ AGENT_ERROR_MODE="continue"
 AGENT_DIRECTORY=""
 ADDITIONAL_AGENT_DIRECTORIES=""
 
+# Remote agent repository cache
+AGENT_CACHE_DIR=""
+UPDATE_AGENT_CACHE="false"
+
 # Agent creation options
 AS_AGENT="false"
 AGENT_NAME=""
@@ -104,15 +108,33 @@ BUILT-IN AGENTS:
     --agent-error-mode MODE        Behavior on agent failure: 'continue' (default) or 'stop'
 
 CUSTOM AGENT MANAGEMENT:
-    --agent-directory DIR          Primary custom agent directory
+    --agent-directory DIR          Primary custom agent directory (local path or remote repo)
+                                   Local:  --agent-directory ./my-agents
+                                   Remote: --agent-directory owner/repo
+                                   Remote with branch: --agent-directory owner/repo@branch
+                                   Remote single agent: --agent-directory owner/repo:agent-name
     --additional-agent-dirs DIRS   Comma-separated list of additional agent directories
+                                   Each entry can be a local path or remote repo reference
+    --agent-cache-dir DIR          Directory to cache downloaded remote agents
+                                   (default: ~/.copilot-cli-automation/agents/)
+    --update-agent-cache           Force re-download of cached remote agents
     --init --as-agent              Create a new custom agent (requires --agent-name)
     --agent-name NAME              Name for new agent (used with --init --as-agent)
                                    Example: --init --as-agent --agent-name "dotnet-review"
 
+REMOTE AGENT REPOSITORY FORMAT:
+    Remote agent repositories must have this structure:
+      <repo-root>/agents/<agent-name>/
+    Each agent subdirectory can contain:
+      - copilot-cli.properties     Agent configuration overrides
+      - user.prompt.md             User prompt/task definition
+      - <agent-name>.agent.md      GitHub custom agent definition
+      - description.txt            One-line description for --list-agents
+      - mcp-config.json            MCP server configuration
+
 AGENT DISCOVERY ORDER (first match wins):
-    1. --agent-directory parameter
-    2. --additional-agent-dirs parameter  
+    1. --agent-directory parameter (local or remote)
+    2. --additional-agent-dirs parameter (local or remote)
     3. COPILOT_AGENT_DIRECTORIES environment variable (colon-separated)
     4. .copilot-agents/ in current directory
     5. Built-in examples directory
@@ -786,25 +808,301 @@ install_agent_to_repository() {
     log "Copied agent file from $agent_file to $target_file"
 }
 
+# ============================================================================
+# Remote Agent Repository Functions
+# ============================================================================
+
+# Function to detect if a string references a remote GitHub repository (not a local path)
+is_remote_agent_ref() {
+    local ref="$1"
+    
+    [[ -z "$ref" ]] && return 1
+    
+    # If it looks like a local path, it's not remote
+    [[ "$ref" == .* ]] && return 1
+    [[ "$ref" == /* ]] && return 1
+    [[ "$ref" == ~* ]] && return 1
+    
+    # If it exists as a local directory, it's not remote
+    local resolved
+    resolved=$(resolve_file_path "$ref")
+    [[ -d "$resolved" ]] && return 1
+    
+    # Match owner/repo[@branch][:agent-name] pattern
+    if [[ "$ref" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(@[A-Za-z0-9_./%+-]+)?(:[A-Za-z0-9_.-]+)?$ ]]; then
+        return 0
+    fi
+    
+    return 1
+}
+
+# Function to parse a remote agent repository reference
+# Sets global variables: PARSED_REPO_OWNER, PARSED_REPO_NAME, PARSED_REPO_BRANCH,
+# PARSED_REPO_AGENT_NAME, PARSED_REPO_IS_ALL, PARSED_REPO_FULL
+parse_agent_repo_reference() {
+    local ref="$1"
+    
+    PARSED_REPO_OWNER=""
+    PARSED_REPO_NAME=""
+    PARSED_REPO_BRANCH="main"
+    PARSED_REPO_AGENT_NAME=""
+    PARSED_REPO_IS_ALL="true"
+    PARSED_REPO_FULL=""
+    
+    local remaining="$ref"
+    
+    # Extract agent name after last ':'
+    if [[ "$remaining" =~ ^(.+):([^:@]+)$ ]]; then
+        remaining="${BASH_REMATCH[1]}"
+        PARSED_REPO_AGENT_NAME="${BASH_REMATCH[2]}"
+        PARSED_REPO_IS_ALL="false"
+    fi
+    
+    # Extract branch after '@'
+    if [[ "$remaining" =~ ^(.+)@(.+)$ ]]; then
+        remaining="${BASH_REMATCH[1]}"
+        PARSED_REPO_BRANCH="${BASH_REMATCH[2]}"
+    fi
+    
+    # Parse owner/repo
+    if [[ "$remaining" =~ ^([^/]+)/(.+)$ ]]; then
+        PARSED_REPO_OWNER="${BASH_REMATCH[1]}"
+        PARSED_REPO_NAME="${BASH_REMATCH[2]}"
+        PARSED_REPO_FULL="${PARSED_REPO_OWNER}/${PARSED_REPO_NAME}"
+    else
+        print_error "Invalid remote agent reference '$ref'. Expected format: owner/repo[@branch][:agent-name]"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Function to get the agent cache directory
+get_agent_cache_dir() {
+    if [[ -n "$AGENT_CACHE_DIR" ]]; then
+        echo "$AGENT_CACHE_DIR"
+    else
+        echo "${HOME}/.copilot-cli-automation/agents"
+    fi
+}
+
+# Function to sync (download) agents from a remote GitHub repository
+# Outputs synced agent directory paths, one per line
+sync_remote_agent_repo() {
+    local reference="$1"
+    local force_refresh="${2:-false}"
+    
+    parse_agent_repo_reference "$reference" || return 1
+    
+    local cache_base
+    cache_base=$(get_agent_cache_dir)
+    local repo_cache="$cache_base/$PARSED_REPO_OWNER/$PARSED_REPO_NAME"
+    
+    # Known files that can exist in an agent directory
+    local known_files=("copilot-cli.properties" "user.prompt.md" "description.txt" "mcp-config.json")
+    
+    # Prepare authentication
+    local auth_header=""
+    local token="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
+    if [[ -z "$token" ]] && command -v gh >/dev/null 2>&1; then
+        token=$(gh auth token 2>/dev/null || true)
+    fi
+    if [[ -n "$token" ]]; then
+        auth_header="Authorization: Bearer $token"
+    fi
+    
+    local synced_paths=()
+    
+    if [[ "$PARSED_REPO_IS_ALL" == "true" ]]; then
+        # List all subdirectories under agents/
+        local api_url="https://api.github.com/repos/$PARSED_REPO_FULL/contents/agents?ref=$PARSED_REPO_BRANCH"
+        log "Fetching agent list from: $api_url"
+        
+        local response
+        local http_code
+        local temp_file
+        temp_file=$(mktemp)
+        
+        local curl_args=(-s -w "\n%{http_code}" --connect-timeout 30 --max-time 60
+            -H "Accept: application/vnd.github.v3+json"
+            -H "User-Agent: CopilotCLI-AgentSync")
+        [[ -n "$auth_header" ]] && curl_args+=(-H "$auth_header")
+        
+        response=$(curl "${curl_args[@]}" "$api_url" 2>"$temp_file")
+        http_code=$(echo "$response" | tail -n1)
+        response=$(echo "$response" | sed '$d')
+        rm -f "$temp_file"
+        
+        if [[ "$http_code" != "200" ]]; then
+            case "$http_code" in
+                404) print_error "Repository '$PARSED_REPO_FULL' not found or has no 'agents/' directory"
+                     echo -e "  Expected structure: $PARSED_REPO_FULL/agents/<agent-name>/" >&2 ;;
+                401|403) print_error "Authentication required for '$PARSED_REPO_FULL'. Set GITHUB_TOKEN or run 'gh auth login'" ;;
+                *) print_error "Failed to list agents from $PARSED_REPO_FULL (HTTP $http_code)" ;;
+            esac
+            return 1
+        fi
+        
+        # Parse directory names from JSON response (find "name" fields where "type" is "dir")
+        local agent_names=()
+        if command -v jq >/dev/null 2>&1; then
+            while IFS= read -r name; do
+                [[ -n "$name" ]] && agent_names+=("$name")
+            done < <(echo "$response" | jq -r '.[] | select(.type == "dir") | .name' 2>/dev/null)
+        elif command -v python3 >/dev/null 2>&1; then
+            while IFS= read -r name; do
+                [[ -n "$name" ]] && agent_names+=("$name")
+            done < <(echo "$response" | python3 -c "import sys, json; [print(e['name']) for e in json.load(sys.stdin) if e.get('type') == 'dir']" 2>/dev/null)
+        else
+            # Fallback: basic grep parsing
+            while IFS= read -r name; do
+                [[ -n "$name" ]] && agent_names+=("$name")
+            done < <(echo "$response" | grep -o '"name"[[:space:]]*:[[:space:]]*"[^"]*"' | sed 's/.*"name"[[:space:]]*:[[:space:]]*"\([^"]*\)"/\1/')
+        fi
+        
+        if [[ ${#agent_names[@]} -eq 0 ]]; then
+            print_warning "No agent directories found in $PARSED_REPO_FULL/agents/"
+            return 0
+        fi
+        
+        for agent_name in "${agent_names[@]}"; do
+            local agent_cache_path="$repo_cache/$agent_name"
+            
+            # Skip if cached and not force refresh
+            if [[ "$force_refresh" != "true" ]] && [[ -d "$agent_cache_path" ]] && \
+               [[ $(find "$agent_cache_path" -maxdepth 1 -type f 2>/dev/null | wc -l) -gt 0 ]]; then
+                log "Using cached agent: $agent_name"
+                synced_paths+=("$agent_cache_path")
+                continue
+            fi
+            
+            # Create cache directory
+            mkdir -p "$agent_cache_path"
+            
+            # Download known files
+            local downloaded_any=false
+            for file_name in "${known_files[@]}"; do
+                local file_url="https://raw.githubusercontent.com/$PARSED_REPO_FULL/$PARSED_REPO_BRANCH/agents/$agent_name/$file_name"
+                local dest_path="$agent_cache_path/$file_name"
+                local dl_args=(-fsSL --connect-timeout 15 --max-time 30 -H "User-Agent: CopilotCLI-AgentSync")
+                [[ -n "$auth_header" ]] && dl_args+=(-H "$auth_header")
+                
+                if curl "${dl_args[@]}" "$file_url" -o "$dest_path" 2>/dev/null; then
+                    downloaded_any=true
+                else
+                    rm -f "$dest_path"
+                fi
+            done
+            
+            # Also try {agent-name}.agent.md
+            local agent_md_url="https://raw.githubusercontent.com/$PARSED_REPO_FULL/$PARSED_REPO_BRANCH/agents/$agent_name/$agent_name.agent.md"
+            local agent_md_dest="$agent_cache_path/$agent_name.agent.md"
+            local dl_args=(-fsSL --connect-timeout 15 --max-time 30 -H "User-Agent: CopilotCLI-AgentSync")
+            [[ -n "$auth_header" ]] && dl_args+=(-H "$auth_header")
+            
+            if curl "${dl_args[@]}" "$agent_md_url" -o "$agent_md_dest" 2>/dev/null; then
+                downloaded_any=true
+            else
+                rm -f "$agent_md_dest"
+            fi
+            
+            if [[ "$downloaded_any" == true ]]; then
+                print_success "Synced remote agent: $agent_name (from $PARSED_REPO_FULL)"
+                synced_paths+=("$agent_cache_path")
+            fi
+        done
+    else
+        # Single agent mode
+        local agent_name="$PARSED_REPO_AGENT_NAME"
+        local agent_cache_path="$repo_cache/$agent_name"
+        
+        # Skip if cached and not force refresh
+        if [[ "$force_refresh" != "true" ]] && [[ -d "$agent_cache_path" ]] && \
+           [[ $(find "$agent_cache_path" -maxdepth 1 -type f 2>/dev/null | wc -l) -gt 0 ]]; then
+            log "Using cached agent: $agent_name"
+            echo "$agent_cache_path"
+            return 0
+        fi
+        
+        # Create cache directory
+        mkdir -p "$agent_cache_path"
+        
+        # Download known files
+        local downloaded_any=false
+        for file_name in "${known_files[@]}"; do
+            local file_url="https://raw.githubusercontent.com/$PARSED_REPO_FULL/$PARSED_REPO_BRANCH/agents/$agent_name/$file_name"
+            local dest_path="$agent_cache_path/$file_name"
+            local dl_args=(-fsSL --connect-timeout 15 --max-time 30 -H "User-Agent: CopilotCLI-AgentSync")
+            [[ -n "$auth_header" ]] && dl_args+=(-H "$auth_header")
+            
+            if curl "${dl_args[@]}" "$file_url" -o "$dest_path" 2>/dev/null; then
+                downloaded_any=true
+            else
+                rm -f "$dest_path"
+            fi
+        done
+        
+        # Also try {agent-name}.agent.md
+        local agent_md_url="https://raw.githubusercontent.com/$PARSED_REPO_FULL/$PARSED_REPO_BRANCH/agents/$agent_name/$agent_name.agent.md"
+        local agent_md_dest="$agent_cache_path/$agent_name.agent.md"
+        local dl_args=(-fsSL --connect-timeout 15 --max-time 30 -H "User-Agent: CopilotCLI-AgentSync")
+        [[ -n "$auth_header" ]] && dl_args+=(-H "$auth_header")
+        
+        if curl "${dl_args[@]}" "$agent_md_url" -o "$agent_md_dest" 2>/dev/null; then
+            downloaded_any=true
+        else
+            rm -f "$agent_md_dest"
+        fi
+        
+        if [[ "$downloaded_any" == true ]]; then
+            print_success "Synced remote agent: $agent_name (from $PARSED_REPO_FULL)"
+            synced_paths+=("$agent_cache_path")
+        else
+            print_error "Agent '$agent_name' not found in $PARSED_REPO_FULL/agents/"
+        fi
+    fi
+    
+    # Output synced paths
+    for p in "${synced_paths[@]}"; do
+        echo "$p"
+    done
+}
+
 # Function to get built-in agents from examples directory and custom directories
 get_builtin_agents() {
     local search_dirs=()
     declare -A seen_names
     
     # 1. User-specified primary directory (highest priority)
-    if [[ -n "$AGENT_DIRECTORY" ]] && [[ -d "$AGENT_DIRECTORY" ]]; then
-        search_dirs+=("$AGENT_DIRECTORY")
-        log "Using custom agent directory: $AGENT_DIRECTORY"
+    # Supports both local paths and remote repo references (owner/repo[@branch][:agent-name])
+    if [[ -n "$AGENT_DIRECTORY" ]]; then
+        if is_remote_agent_ref "$AGENT_DIRECTORY"; then
+            while IFS= read -r rp; do
+                [[ -n "$rp" ]] && search_dirs+=("$rp")
+            done < <(sync_remote_agent_repo "$AGENT_DIRECTORY" "$UPDATE_AGENT_CACHE")
+            log "Synced remote agent directory: $AGENT_DIRECTORY"
+        elif [[ -d "$AGENT_DIRECTORY" ]]; then
+            search_dirs+=("$AGENT_DIRECTORY")
+            log "Using custom agent directory: $AGENT_DIRECTORY"
+        fi
     fi
     
     # 2. User-specified additional directories
+    # Each entry can independently be a local path or remote repo reference
     if [[ -n "$ADDITIONAL_AGENT_DIRECTORIES" ]]; then
         IFS=',' read -ra dirs <<< "$ADDITIONAL_AGENT_DIRECTORIES"
         for dir in "${dirs[@]}"; do
             dir=$(echo "$dir" | xargs)  # Trim whitespace
-            if [[ -n "$dir" ]] && [[ -d "$dir" ]]; then
-                search_dirs+=("$dir")
-                log "Using additional agent directory: $dir"
+            if [[ -n "$dir" ]]; then
+                if is_remote_agent_ref "$dir"; then
+                    while IFS= read -r rp; do
+                        [[ -n "$rp" ]] && search_dirs+=("$rp")
+                    done < <(sync_remote_agent_repo "$dir" "$UPDATE_AGENT_CACHE")
+                    log "Synced remote additional agent directory: $dir"
+                elif [[ -d "$dir" ]]; then
+                    search_dirs+=("$dir")
+                    log "Using additional agent directory: $dir"
+                fi
             fi
         done
     fi
@@ -881,7 +1179,15 @@ show_builtin_agents() {
     agents=$(get_builtin_agents)
     
     if [[ -z "$agents" ]]; then
-        echo "No built-in agents found in examples directory."
+        echo ""
+        echo "No agents found."
+        echo ""
+        echo "To get started with agents:"
+        echo "  - Use a remote agent repo:  --agent-directory owner/repo"
+        echo "  - Create a custom agent:    --init --as-agent --agent-name \"my-agent\""
+        echo "  - Add a local agent dir:    --agent-directory ./my-agents"
+        echo "  - Reinstall with examples:  Re-run install without --skip-examples"
+        echo ""
         return
     fi
     
@@ -1440,6 +1746,7 @@ load_config() {
                 # New: Custom agent directories
                 agent.directory) [[ -z "$AGENT_DIRECTORY" ]] && AGENT_DIRECTORY="$value" ;;
                 additional.agent.directories) [[ -z "$ADDITIONAL_AGENT_DIRECTORIES" ]] && ADDITIONAL_AGENT_DIRECTORIES="$value" ;;
+                agent.cache.dir) [[ -z "$AGENT_CACHE_DIR" ]] && AGENT_CACHE_DIR="$value" ;;
                 # New: CLI parity options
                 agent) [[ -z "$AGENT" ]] && AGENT="$value" ;;
                 allow.all.urls) ALLOW_ALL_URLS=$(parse_bool "$value") ;;
@@ -1965,6 +2272,14 @@ while [[ $# -gt 0 ]]; do
             ADDITIONAL_AGENT_DIRECTORIES="$2"
             shift 2
             ;;
+        --agent-cache-dir)
+            AGENT_CACHE_DIR="$2"
+            shift 2
+            ;;
+        --update-agent-cache)
+            UPDATE_AGENT_CACHE="true"
+            shift
+            ;;
         --as-agent)
             AS_AGENT="true"
             shift
@@ -2009,6 +2324,11 @@ fi
 if [[ "$DIAGNOSE" == "true" ]]; then
     show_diagnostic_status
     exit 0
+fi
+
+# Handle --update-agent-cache: inform user cache will be refreshed
+if [[ "$UPDATE_AGENT_CACHE" == "true" ]]; then
+    print_info "Agent cache will be refreshed on next sync operation."
 fi
 
 # Check for COPILOT_AGENT environment variable if no agent specified

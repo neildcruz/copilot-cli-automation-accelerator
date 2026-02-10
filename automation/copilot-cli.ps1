@@ -66,6 +66,9 @@ param(
     # New: Custom agent directories
     [string]$AgentDirectory = "",
     [string]$AdditionalAgentDirectories = "",
+    # New: Remote agent repository cache
+    [string]$AgentCacheDir = "",
+    [switch]$UpdateAgentCache,
     # New: Agent creation enhancements
     [switch]$AsAgent,
     [string]$AgentName = ""
@@ -120,15 +123,33 @@ BUILT-IN AGENTS:
     -AgentErrorMode MODE           Behavior on agent failure: 'continue' (default) or 'stop'
 
 CUSTOM AGENT MANAGEMENT:
-    -AgentDirectory DIR            Primary custom agent directory
+    -AgentDirectory DIR            Primary custom agent directory (local path or remote repo)
+                                   Local:  -AgentDirectory ./my-agents
+                                   Remote: -AgentDirectory owner/repo
+                                   Remote with branch: -AgentDirectory owner/repo@branch
+                                   Remote single agent: -AgentDirectory owner/repo:agent-name
     -AdditionalAgentDirectories    Comma-separated list of additional agent directories
+                                   Each entry can be a local path or remote repo reference
+    -AgentCacheDir DIR             Directory to cache downloaded remote agents
+                                   (default: ~/.copilot-cli-automation/agents/)
+    -UpdateAgentCache              Force re-download of cached remote agents
     -Init -AsAgent                 Create a new custom agent (requires -AgentName)
     -AgentName NAME                Name for new agent (used with -Init -AsAgent)
                                    Example: -Init -AsAgent -AgentName "dotnet-review"
 
+REMOTE AGENT REPOSITORY FORMAT:
+    Remote agent repositories must have this structure:
+      <repo-root>/agents/<agent-name>/
+    Each agent subdirectory can contain:
+      - copilot-cli.properties     Agent configuration overrides
+      - user.prompt.md             User prompt/task definition
+      - <agent-name>.agent.md      GitHub custom agent definition
+      - description.txt            One-line description for -ListAgents
+      - mcp-config.json            MCP server configuration
+
 AGENT DISCOVERY ORDER (first match wins):
-    1. -AgentDirectory parameter
-    2. -AdditionalAgentDirectories parameter  
+    1. -AgentDirectory parameter (local or remote)
+    2. -AdditionalAgentDirectories parameter (local or remote)
     3. COPILOT_AGENT_DIRECTORIES environment variable (semicolon-separated)
     4. .copilot-agents/ in current directory
     5. Built-in examples directory
@@ -1113,6 +1134,247 @@ Please follow these guidelines:
     Write-Host "Edit these files and run: .\copilot-cli.ps1" -ForegroundColor Cyan
 }
 
+# ============================================================================
+# Remote Agent Repository Functions
+# ============================================================================
+
+# Function to detect if a string references a remote GitHub repository (not a local path)
+function Test-IsRemoteAgentRef {
+    param([string]$Ref)
+    
+    if ([string]::IsNullOrEmpty($Ref)) { return $false }
+    
+    # If it looks like a local path, it's not remote
+    if ($Ref.StartsWith('.') -or $Ref.StartsWith('/') -or $Ref.StartsWith('~') -or $Ref -match '^[A-Za-z]:') {
+        return $false
+    }
+    # If it exists as a local directory, it's not remote
+    $resolvedPath = Resolve-FilePath -FilePath $Ref
+    if (Test-Path $resolvedPath) { return $false }
+    
+    # Match owner/repo, owner/repo@branch, owner/repo:agent, owner/repo@branch:agent
+    if ($Ref -match '^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+(@[A-Za-z0-9_./%-]+)?(:[A-Za-z0-9_.-]+)?$') {
+        return $true
+    }
+    
+    return $false
+}
+
+# Function to parse a remote agent repository reference
+# Supported formats:
+#   owner/repo                    -> all agents from agents/ dir, main branch
+#   owner/repo:agent-name         -> single agent, main branch
+#   owner/repo@branch             -> all agents, specific branch
+#   owner/repo@branch:agent-name  -> single agent, specific branch
+function Parse-AgentRepoReference {
+    param([string]$Ref)
+    
+    $result = @{
+        Owner = ""
+        Repo = ""
+        FullRepo = ""
+        Branch = "main"
+        AgentName = ""
+        IsAll = $true
+    }
+    
+    $remaining = $Ref
+    
+    # Extract agent name after ':'
+    if ($remaining -match '^(.+):([^:@]+)$') {
+        $remaining = $matches[1]
+        $result.AgentName = $matches[2]
+        $result.IsAll = $false
+    }
+    
+    # Extract branch after '@'
+    if ($remaining -match '^(.+)@(.+)$') {
+        $remaining = $matches[1]
+        $result.Branch = $matches[2]
+    }
+    
+    # Parse owner/repo
+    if ($remaining -match '^([^/]+)/(.+)$') {
+        $result.Owner = $matches[1]
+        $result.Repo = $matches[2]
+        $result.FullRepo = "$($matches[1])/$($matches[2])"
+    } else {
+        # Bare repo name - cannot form a valid GitHub URL
+        Write-Host "Error: Invalid remote agent reference '$Ref'. Expected format: owner/repo[@branch][:agent-name]" -ForegroundColor Red
+        return $null
+    }
+    
+    return $result
+}
+
+# Function to get the agent cache directory
+function Get-AgentCacheDir {
+    if (-not [string]::IsNullOrEmpty($script:AgentCacheDir)) {
+        return $script:AgentCacheDir
+    }
+    
+    $homeDir = if ($env:USERPROFILE) { $env:USERPROFILE } else { $env:HOME }
+    return Join-Path $homeDir ".copilot-cli-automation" "agents"
+}
+
+# Function to sync (download) agents from a remote GitHub repository
+function Sync-RemoteAgentRepo {
+    param(
+        [string]$Reference,
+        [switch]$ForceRefresh
+    )
+    
+    $parsed = Parse-AgentRepoReference -Ref $Reference
+    if (-not $parsed) { return @() }
+    
+    $cacheBase = Get-AgentCacheDir
+    $repoCache = Join-Path $cacheBase $parsed.Owner $parsed.Repo
+    
+    # Known files that can exist in an agent directory
+    $knownFiles = @("copilot-cli.properties", "user.prompt.md", "description.txt", "mcp-config.json")
+    
+    # Prepare authentication headers
+    $headers = @{
+        "Accept" = "application/vnd.github.v3+json"
+        "User-Agent" = "CopilotCLI-AgentSync"
+    }
+    $token = $env:GITHUB_TOKEN
+    if (-not $token -and $env:GH_TOKEN) { $token = $env:GH_TOKEN }
+    if (-not $token) {
+        try { $token = & gh auth token 2>$null } catch { }
+    }
+    if ($token) { $headers["Authorization"] = "Bearer $token" }
+    
+    $syncedPaths = @()
+    
+    if ($parsed.IsAll) {
+        # List all subdirectories under agents/
+        $apiUrl = "https://api.github.com/repos/$($parsed.FullRepo)/contents/agents?ref=$($parsed.Branch)"
+        Write-Log "Fetching agent list from: $apiUrl"
+        
+        try {
+            $response = Invoke-RestMethod -Uri $apiUrl -Headers $headers -TimeoutSec 30
+            $agentDirs = $response | Where-Object { $_.type -eq "dir" }
+            
+            if ($agentDirs.Count -eq 0) {
+                Write-Host "Warning: No agent directories found in $($parsed.FullRepo)/agents/" -ForegroundColor Yellow
+                return @()
+            }
+            
+            foreach ($dir in $agentDirs) {
+                $agentName = $dir.name
+                $agentCachePath = Join-Path $repoCache $agentName
+                
+                # Skip if cached and not force refresh
+                if (-not $ForceRefresh -and (Test-Path $agentCachePath) -and 
+                    (Get-ChildItem -Path $agentCachePath -File -ErrorAction SilentlyContinue).Count -gt 0) {
+                    Write-Log "Using cached agent: $agentName"
+                    $syncedPaths += $agentCachePath
+                    continue
+                }
+                
+                # Create cache directory
+                if (-not (Test-Path $agentCachePath)) {
+                    New-Item -ItemType Directory -Path $agentCachePath -Force | Out-Null
+                }
+                
+                # Download known files + any .agent.md file
+                $downloadedAny = $false
+                foreach ($fileName in $knownFiles) {
+                    $fileUrl = "https://raw.githubusercontent.com/$($parsed.FullRepo)/$($parsed.Branch)/agents/$agentName/$fileName"
+                    $destPath = Join-Path $agentCachePath $fileName
+                    try {
+                        $fileHeaders = @{ "User-Agent" = "CopilotCLI-AgentSync" }
+                        if ($token) { $fileHeaders["Authorization"] = "Bearer $token" }
+                        Invoke-WebRequest -Uri $fileUrl -Headers $fileHeaders -OutFile $destPath -UseBasicParsing -ErrorAction Stop | Out-Null
+                        $downloadedAny = $true
+                    } catch {
+                        # File doesn't exist in remote - that's OK
+                    }
+                }
+                
+                # Also try to download {agent-name}.agent.md
+                $agentMdUrl = "https://raw.githubusercontent.com/$($parsed.FullRepo)/$($parsed.Branch)/agents/$agentName/$agentName.agent.md"
+                $agentMdDest = Join-Path $agentCachePath "$agentName.agent.md"
+                try {
+                    $fileHeaders = @{ "User-Agent" = "CopilotCLI-AgentSync" }
+                    if ($token) { $fileHeaders["Authorization"] = "Bearer $token" }
+                    Invoke-WebRequest -Uri $agentMdUrl -Headers $fileHeaders -OutFile $agentMdDest -UseBasicParsing -ErrorAction Stop | Out-Null
+                    $downloadedAny = $true
+                } catch { }
+                
+                if ($downloadedAny) {
+                    Write-Host "Synced remote agent: $agentName (from $($parsed.FullRepo))" -ForegroundColor Green
+                    $syncedPaths += $agentCachePath
+                }
+            }
+        } catch {
+            $statusCode = $null
+            if ($_.Exception -and $_.Exception.Response) {
+                $statusCode = [int]$_.Exception.Response.StatusCode
+            }
+            
+            if ($statusCode -eq 404) {
+                Write-Host "Error: Repository '$($parsed.FullRepo)' not found or has no 'agents/' directory" -ForegroundColor Red
+                Write-Host "Expected structure: $($parsed.FullRepo)/agents/<agent-name>/" -ForegroundColor Gray
+            } elseif ($statusCode -eq 401 -or $statusCode -eq 403) {
+                Write-Host "Error: Authentication required for '$($parsed.FullRepo)'. Set GITHUB_TOKEN or run 'gh auth login'" -ForegroundColor Red
+            } else {
+                Write-Host "Error: Failed to list agents from $($parsed.FullRepo): $($_.Exception.Message)" -ForegroundColor Red
+            }
+            return @()
+        }
+    } else {
+        # Single agent mode
+        $agentName = $parsed.AgentName
+        $agentCachePath = Join-Path $repoCache $agentName
+        
+        # Skip if cached and not force refresh
+        if (-not $ForceRefresh -and (Test-Path $agentCachePath) -and 
+            (Get-ChildItem -Path $agentCachePath -File -ErrorAction SilentlyContinue).Count -gt 0) {
+            Write-Log "Using cached agent: $agentName"
+            return @($agentCachePath)
+        }
+        
+        # Create cache directory
+        if (-not (Test-Path $agentCachePath)) {
+            New-Item -ItemType Directory -Path $agentCachePath -Force | Out-Null
+        }
+        
+        # Download known files
+        $downloadedAny = $false
+        foreach ($fileName in $knownFiles) {
+            $fileUrl = "https://raw.githubusercontent.com/$($parsed.FullRepo)/$($parsed.Branch)/agents/$agentName/$fileName"
+            $destPath = Join-Path $agentCachePath $fileName
+            try {
+                $fileHeaders = @{ "User-Agent" = "CopilotCLI-AgentSync" }
+                if ($token) { $fileHeaders["Authorization"] = "Bearer $token" }
+                Invoke-WebRequest -Uri $fileUrl -Headers $fileHeaders -OutFile $destPath -UseBasicParsing -ErrorAction Stop | Out-Null
+                $downloadedAny = $true
+            } catch { }
+        }
+        
+        # Also try {agent-name}.agent.md
+        $agentMdUrl = "https://raw.githubusercontent.com/$($parsed.FullRepo)/$($parsed.Branch)/agents/$agentName/$agentName.agent.md"
+        $agentMdDest = Join-Path $agentCachePath "$agentName.agent.md"
+        try {
+            $fileHeaders = @{ "User-Agent" = "CopilotCLI-AgentSync" }
+            if ($token) { $fileHeaders["Authorization"] = "Bearer $token" }
+            Invoke-WebRequest -Uri $agentMdUrl -Headers $fileHeaders -OutFile $agentMdDest -UseBasicParsing -ErrorAction Stop | Out-Null
+            $downloadedAny = $true
+        } catch { }
+        
+        if ($downloadedAny) {
+            Write-Host "Synced remote agent: $agentName (from $($parsed.FullRepo))" -ForegroundColor Green
+            $syncedPaths += $agentCachePath
+        } else {
+            Write-Host "Error: Agent '$agentName' not found in $($parsed.FullRepo)/agents/" -ForegroundColor Red
+        }
+    }
+    
+    return $syncedPaths
+}
+
 # Function to get built-in agents from examples directory and custom directories
 function Get-BuiltInAgents {
     $searchDirs = @()
@@ -1120,22 +1382,40 @@ function Get-BuiltInAgents {
     $seenNames = @{}
     
     # 1. User-specified primary directory (highest priority)
+    # Supports both local paths and remote repo references (owner/repo[@branch][:agent-name])
     if (-not [string]::IsNullOrEmpty($script:AgentDirectory)) {
-        $resolvedDir = Resolve-FilePath -FilePath $script:AgentDirectory
-        if (Test-Path $resolvedDir) {
-            $searchDirs += $resolvedDir
-            Write-Log "Using custom agent directory: $resolvedDir"
+        if (Test-IsRemoteAgentRef -Ref $script:AgentDirectory) {
+            $remotePaths = Sync-RemoteAgentRepo -Reference $script:AgentDirectory -ForceRefresh:$script:UpdateAgentCache
+            foreach ($rp in $remotePaths) {
+                $searchDirs += $rp
+            }
+            Write-Log "Synced remote agent directory: $($script:AgentDirectory)"
+        } else {
+            $resolvedDir = Resolve-FilePath -FilePath $script:AgentDirectory
+            if (Test-Path $resolvedDir) {
+                $searchDirs += $resolvedDir
+                Write-Log "Using custom agent directory: $resolvedDir"
+            }
         }
     }
     
     # 2. User-specified additional directories
+    # Each entry can independently be a local path or remote repo reference
     if (-not [string]::IsNullOrEmpty($script:AdditionalAgentDirectories)) {
         $dirs = $script:AdditionalAgentDirectories -split ',' | ForEach-Object { $_.Trim() }
         foreach ($dir in $dirs) {
-            $resolvedDir = Resolve-FilePath -FilePath $dir
-            if (Test-Path $resolvedDir) {
-                $searchDirs += $resolvedDir
-                Write-Log "Using additional agent directory: $resolvedDir"
+            if (Test-IsRemoteAgentRef -Ref $dir) {
+                $remotePaths = Sync-RemoteAgentRepo -Reference $dir -ForceRefresh:$script:UpdateAgentCache
+                foreach ($rp in $remotePaths) {
+                    $searchDirs += $rp
+                }
+                Write-Log "Synced remote additional agent directory: $dir"
+            } else {
+                $resolvedDir = Resolve-FilePath -FilePath $dir
+                if (Test-Path $resolvedDir) {
+                    $searchDirs += $resolvedDir
+                    Write-Log "Using additional agent directory: $resolvedDir"
+                }
             }
         }
     }
@@ -1245,7 +1525,15 @@ function Show-BuiltInAgents {
     $agents = Get-BuiltInAgents
     
     if ($agents.Count -eq 0) {
-        Write-Host "No built-in agents found in examples directory." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "No agents found." -ForegroundColor Yellow
+        Write-Host ""
+        Write-Host "To get started with agents:" -ForegroundColor Cyan
+        Write-Host "  - Use a remote agent repo:  -AgentDirectory owner/repo" -ForegroundColor White
+        Write-Host "  - Create a custom agent:    -Init -AsAgent -AgentName `"my-agent`"" -ForegroundColor White
+        Write-Host "  - Add a local agent dir:    -AgentDirectory ./my-agents" -ForegroundColor White
+        Write-Host "  - Reinstall with examples:  Re-run install without -SkipExamples" -ForegroundColor White
+        Write-Host ""
         return
     }
     
@@ -1816,6 +2104,9 @@ function Load-Config {
         if ($config.ContainsKey("additional.agent.directories") -and [string]::IsNullOrEmpty($script:AdditionalAgentDirectories)) {
             $script:AdditionalAgentDirectories = $config["additional.agent.directories"]
         }
+        if ($config.ContainsKey("agent.cache.dir") -and [string]::IsNullOrEmpty($script:AgentCacheDir)) {
+            $script:AgentCacheDir = $config["agent.cache.dir"]
+        }
         
         # New: CLI parity options
         if ($config.ContainsKey("agent") -and [string]::IsNullOrEmpty($script:Agent)) {
@@ -2179,6 +2470,11 @@ try {
     if ($Diagnose) {
         Show-DiagnosticStatus
         exit 0
+    }
+    
+    # Handle -UpdateAgentCache: set flag so remote syncs use force refresh
+    if ($UpdateAgentCache) {
+        Write-Host "Agent cache will be refreshed on next sync operation." -ForegroundColor Cyan
     }
     
     # Check for COPILOT_AGENT environment variable if no agent specified
