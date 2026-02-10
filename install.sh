@@ -388,7 +388,7 @@ parse_args() {
 declare -a FILES_TO_DOWNLOAD=(
     # Core files
     "README.md:required:core"
-    "INDEX.md:required:core"
+    "INDEX.md:optional:core"
     "automation/README.md:required:core"
     "automation/copilot-cli.sh:required:core"
     "automation/copilot-cli.ps1:required:core"

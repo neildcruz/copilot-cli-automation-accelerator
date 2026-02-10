@@ -529,7 +529,7 @@ if (-not $InstallPath) {
 $FilesToDownload = @(
     # Core files
     @{ Path = "README.md"; Required = $true; IsExample = $false },
-    @{ Path = "INDEX.md"; Required = $true; IsExample = $false },
+    @{ Path = "INDEX.md"; Required = $false; IsExample = $false },
     @{ Path = "automation/README.md"; Required = $true; IsExample = $false },
     @{ Path = "automation/copilot-cli.ps1"; Required = $true; IsExample = $false },
     @{ Path = "automation/copilot-cli.sh"; Required = $true; IsExample = $false },
