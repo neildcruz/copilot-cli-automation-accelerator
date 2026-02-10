@@ -23,8 +23,8 @@
     GitHub repository in format 'owner/repo'. Default: 'neildcruz/copilot-cli-automation-accelerator'
 
 .PARAMETER SkipExamples
-    Skip downloading built-in example agents. Useful for minimal installations
-    or when using custom/remote agent repositories instead.
+    Whether to download built-in example agents. Defaults to $true (examples are skipped).
+    Pass -SkipExamples:$false to include example agents.
 
 .EXAMPLE
     .\install.ps1
@@ -36,7 +36,7 @@
     .\install.ps1 -InstallPath "C:\Tools\copilot-automation" -Update
 
 .EXAMPLE
-    .\install.ps1 -SkipExamples
+    .\install.ps1 -SkipExamples:$false:$false
 #>
 
 param(
@@ -46,7 +46,7 @@ param(
     [switch]$Update,
     [string]$Branch = 'main',
     [string]$Repository = 'neildcruz/copilot-cli-automation-accelerator',
-    [switch]$SkipExamples
+    [bool]$SkipExamples = $true
 )
 
 # Configuration

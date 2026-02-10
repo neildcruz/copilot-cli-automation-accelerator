@@ -13,7 +13,7 @@ UPDATE=false
 BRANCH="main"
 REPOSITORY="neildcruz/copilot-cli-automation-accelerator"
 VERBOSE=false
-SKIP_EXAMPLES=false
+SKIP_EXAMPLES=true
 GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
 # Color functions for output
@@ -299,7 +299,8 @@ OPTIONS:
     -b, --branch BRANCH   Git branch to download from (default: main)
     -r, --repo REPO       GitHub repository in format 'owner/repo' 
                          (default: neildcruz/copilot-cli-automation-accelerator)
-    -s, --skip-examples   Skip downloading built-in example agents
+    -s, --skip-examples   Skip downloading built-in example agents (default: enabled)
+    --include-examples    Include built-in example agents in installation
     -t, --token TOKEN     GitHub personal access token for private repository access
     -v, --verbose         Enable verbose output
     -h, --help            Show this help message
@@ -314,7 +315,7 @@ EXAMPLES:
     $0 --path ~/my-tools --update         # Update installation in ~/my-tools
     $0 --token ghp_xxx...                 # Install with explicit token
     $0 --branch develop --verbose         # Install from develop branch with verbose output
-    $0 --skip-examples                    # Install without example agents
+    $0 --include-examples                 # Install with example agents
 
 EOF
 }
@@ -357,6 +358,10 @@ parse_args() {
                 ;;
             -s|--skip-examples)
                 SKIP_EXAMPLES=true
+                shift
+                ;;
+            --include-examples)
+                SKIP_EXAMPLES=false
                 shift
                 ;;
             -h|--help)
