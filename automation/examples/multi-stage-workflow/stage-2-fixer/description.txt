@@ -1,1 +1,0 @@
-Stage 2: Security fix generator that reads SECURITY_FINDINGS.md and creates fixes

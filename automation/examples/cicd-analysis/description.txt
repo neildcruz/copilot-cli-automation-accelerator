@@ -1,1 +1,0 @@
-Analyze and optimize CI/CD pipeline configurations
