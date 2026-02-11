@@ -1391,8 +1391,12 @@ function Get-BuiltInAgents {
     if (-not [string]::IsNullOrEmpty($script:AgentDirectory)) {
         if (Test-IsRemoteAgentRef -Ref $script:AgentDirectory) {
             $remotePaths = Sync-RemoteAgentRepo -Reference $script:AgentDirectory -ForceRefresh:$script:UpdateAgentCache
-            foreach ($rp in $remotePaths) {
-                $searchDirs += $rp
+            if ($remotePaths -and $remotePaths.Count -gt 0) {
+                # Add the parent directory (repo cache) so agent subdirectories are discoverable
+                $repoParent = Split-Path $remotePaths[0] -Parent
+                if ($repoParent -and -not ($searchDirs -contains $repoParent)) {
+                    $searchDirs += $repoParent
+                }
             }
             Write-Log "Synced remote agent directory: $($script:AgentDirectory)"
         } else {
@@ -1411,8 +1415,12 @@ function Get-BuiltInAgents {
         foreach ($dir in $dirs) {
             if (Test-IsRemoteAgentRef -Ref $dir) {
                 $remotePaths = Sync-RemoteAgentRepo -Reference $dir -ForceRefresh:$script:UpdateAgentCache
-                foreach ($rp in $remotePaths) {
-                    $searchDirs += $rp
+                if ($remotePaths -and $remotePaths.Count -gt 0) {
+                    # Add the parent directory (repo cache) so agent subdirectories are discoverable
+                    $repoParent = Split-Path $remotePaths[0] -Parent
+                    if ($repoParent -and -not ($searchDirs -contains $repoParent)) {
+                        $searchDirs += $repoParent
+                    }
                 }
                 Write-Log "Synced remote additional agent directory: $dir"
             } else {
@@ -2597,6 +2605,12 @@ try {
         exit 0
     }
     
+    # Load configuration file early (needed for -ListAgents, -ViewAgent, -Diagnose)
+    Load-Config -ConfigFile $Config
+    
+    # Setup GitHub authentication early (needed for API calls including remote agent sync)
+    Set-GitHubAuth
+    
     # Handle -ListAgents command
     if ($ListAgents) {
         Show-BuiltInAgents
@@ -2672,12 +2686,6 @@ try {
             # Keep the Agent variable so --agent flag is passed to copilot CLI
         }
     }
-    
-    # Load configuration file
-    Load-Config -ConfigFile $Config
-    
-    # Setup GitHub authentication early (needed for API calls)
-    Set-GitHubAuth
     
     # Handle -ListPrompts command
     if ($ListPrompts) {

@@ -1082,9 +1082,21 @@ get_builtin_agents() {
     # Supports both local paths and remote repo references (owner/repo[@branch][:agent-name])
     if [[ -n "$AGENT_DIRECTORY" ]]; then
         if is_remote_agent_ref "$AGENT_DIRECTORY"; then
+            local first_path=""
             while IFS= read -r rp; do
-                [[ -n "$rp" ]] && search_dirs+=("$rp")
+                if [[ -n "$rp" ]]; then
+                    # Capture the first path to derive the parent directory
+                    if [[ -z "$first_path" ]]; then
+                        first_path="$rp"
+                    fi
+                fi
             done < <(sync_remote_agent_repo "$AGENT_DIRECTORY" "$UPDATE_AGENT_CACHE")
+            # Add the parent directory (repo cache) so agent subdirectories are discoverable
+            if [[ -n "$first_path" ]]; then
+                local repo_parent
+                repo_parent=$(dirname "$first_path")
+                search_dirs+=("$repo_parent")
+            fi
             log "Synced remote agent directory: $AGENT_DIRECTORY"
         elif [[ -d "$AGENT_DIRECTORY" ]]; then
             search_dirs+=("$AGENT_DIRECTORY")
@@ -1100,9 +1112,20 @@ get_builtin_agents() {
             dir=$(echo "$dir" | xargs)  # Trim whitespace
             if [[ -n "$dir" ]]; then
                 if is_remote_agent_ref "$dir"; then
+                    local first_rp=""
                     while IFS= read -r rp; do
-                        [[ -n "$rp" ]] && search_dirs+=("$rp")
+                        if [[ -n "$rp" ]]; then
+                            if [[ -z "$first_rp" ]]; then
+                                first_rp="$rp"
+                            fi
+                        fi
                     done < <(sync_remote_agent_repo "$dir" "$UPDATE_AGENT_CACHE")
+                    # Add the parent directory (repo cache) so agent subdirectories are discoverable
+                    if [[ -n "$first_rp" ]]; then
+                        local rp_parent
+                        rp_parent=$(dirname "$first_rp")
+                        search_dirs+=("$rp_parent")
+                    fi
                     log "Synced remote additional agent directory: $dir"
                 elif [[ -d "$dir" ]]; then
                     search_dirs+=("$dir")
@@ -2498,6 +2521,12 @@ if [[ "$INIT" == "true" ]]; then
     exit 0
 fi
 
+# Load configuration file early (needed for --list-agents, --view-agent, --diagnose)
+load_config "$CONFIG_FILE"
+
+# Setup GitHub authentication early (needed for API calls including remote agent sync)
+setup_github_auth
+
 # Handle --list-agents command
 if [[ "$LIST_AGENTS" == "true" ]]; then
     show_builtin_agents
@@ -2572,12 +2601,6 @@ if [[ -n "$AGENT" ]]; then
         fi
     fi
 fi
-
-# Load configuration file
-load_config "$CONFIG_FILE"
-
-# Setup GitHub authentication early (needed for API calls)
-setup_github_auth
 
 # Handle --list-prompts command
 if [[ "$LIST_PROMPTS" == "true" ]]; then
