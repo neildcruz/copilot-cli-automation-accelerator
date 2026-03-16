@@ -2667,13 +2667,17 @@ try {
         if ($builtInConfig) {
             Write-Host "Using built-in agent: $Agent" -ForegroundColor Cyan
             
-            # Load the agent's properties file if it exists
+            # Load the agent's properties file if it exists (overrides default config)
             if ($builtInConfig.PropertiesFile) {
-                $Config = $builtInConfig.PropertiesFile
+                # Reset config-loaded values so agent's config takes precedence
+                $PromptFile = ""
+                $AgentFile = ""
+                $Prompt = ""
+                Load-Config -ConfigFile $builtInConfig.PropertiesFile
             }
             
-            # Set prompt files if not already set
-            if ([string]::IsNullOrEmpty($PromptFile) -and $builtInConfig.UserPromptFile) {
+            # Override prompt file with the agent's own prompt (agent takes precedence)
+            if ($builtInConfig.UserPromptFile) {
                 $PromptFile = $builtInConfig.UserPromptFile
             }
             
