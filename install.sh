@@ -692,6 +692,35 @@ set_executable_permissions() {
     fi
 }
 
+# Upgrade Copilot CLI if already installed
+upgrade_copilot_cli() {
+    print_step "Checking GitHub Copilot CLI..."
+
+    # Check if copilot command is available
+    local is_installed=false
+    if command -v copilot >/dev/null 2>&1; then
+        is_installed=true
+    elif command -v npm >/dev/null 2>&1; then
+        if npm list -g @github/copilot --depth=0 >/dev/null 2>&1; then
+            is_installed=true
+        fi
+    fi
+
+    if [[ "$is_installed" != true ]]; then
+        print_info "GitHub Copilot CLI is not installed - skipping upgrade"
+        print_info "Install it later with: npm install -g @github/copilot"
+        return
+    fi
+
+    print_info "GitHub Copilot CLI is already installed - upgrading to latest version..."
+    if npm install -g @github/copilot 2>&1; then
+        print_success "GitHub Copilot CLI upgraded to the latest version"
+    else
+        print_warning "Could not upgrade GitHub Copilot CLI"
+        print_info "You can upgrade manually with: npm install -g @github/copilot"
+    fi
+}
+
 # Show post-installation instructions
 show_post_install_instructions() {
     echo ""
@@ -816,6 +845,9 @@ main() {
     
     # Step 5: Set permissions
     set_executable_permissions
+    
+    # Step 5.5: Upgrade Copilot CLI if already installed
+    upgrade_copilot_cli
     
     # Step 6: Clean up backup if update was successful
     if [[ -n "$backup_path" && -d "$backup_path" && "$UPDATE" == true ]]; then
