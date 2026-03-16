@@ -59,7 +59,9 @@ Choose the workflow that fits your needs:
 2. **[code-review.yml](#code-reviewyml)** - Built-in code review agent
 3. **[security-analysis.yml](#security-analysisyml)** - Built-in security scanner
 4. **[documentation.yml](#documentationyml)** - Built-in documentation generator
-5. **[Custom Agents](#custom-agent-workflows)** - Use your own agents from `.copilot-agents/`
+5. **[auto-heal-deploy.yml](#auto-heal-deployyml)** - Build, deploy, and auto-heal with AI-powered failure analysis
+6. **[auto-update-unit-tests.yml](#auto-update-unit-testsyml)** - Run tests with coverage analysis and AI-driven test generation
+7. **[Custom Agents](#custom-agent-workflows)** - Use your own agents from `.copilot-agents/`
 
 ---
 
@@ -177,6 +179,118 @@ cd your-project/
 ```
 
 **See [CUSTOM-AGENTS.md](../CUSTOM-AGENTS.md) for complete guide.**
+
+---
+
+## auto-heal-deploy.yml
+
+Reusable build, deploy, and auto-heal workflow for Azure Container Apps. On deployment failure, it captures logs, generates an AI-powered root cause analysis via Copilot CLI, and creates a GitHub issue assigned to `@copilot` for automated remediation.
+
+### Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `container-app-name` | Name of the Azure Container App to deploy to | Yes | — |
+| `image-name` | Docker image name (without registry prefix) | Yes | — |
+| `resource-group` | Azure resource group for the Container App | No | Falls back to `AZURE_RESOURCE_GROUP` secret |
+| `registry` | Container registry URL | No | Falls back to `AZURE_CONTAINER_REGISTRY` secret |
+
+### Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `AZURE_CONTAINER_REGISTRY` | Container registry URL |
+| `REGISTRY_USERNAME` | Registry login username |
+| `REGISTRY_PASSWORD` | Registry login password |
+| `AZURE_RESOURCE_GROUP` | Azure resource group |
+| `AZURE_CREDENTIALS` | Azure service principal credentials |
+| `GH_TOKEN` | GitHub token for issue creation |
+| `COPILOT_GITHUB_TOKEN` | Token for Copilot CLI authentication |
+
+### Usage
+
+```yaml
+name: Deploy My App
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm test
+
+  deploy:
+    needs: tests
+    uses: ./.github/workflows/auto-heal-deploy.yml
+    with:
+      container-app-name: my-service
+      image-name: my-service-image
+    secrets: inherit
+```
+
+### What Happens on Failure
+
+1. Deployment logs are captured (Docker build output, Azure Container App logs, app status)
+2. Copilot CLI analyzes the logs and identifies root cause
+3. A GitHub issue is created with the AI analysis, suggested fix, and full logs
+4. `@copilot` is assigned to the issue for automated remediation
+
+---
+
+## auto-update-unit-tests.yml
+
+Reusable unit test and coverage workflow for Python projects. Runs pytest with coverage measurement and, when coverage falls below the threshold, uses Copilot CLI to analyze gaps and create a GitHub issue with suggested test code assigned to `@copilot`.
+
+### Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `python-version` | Python version to use | No | `3.11` |
+| `working-directory` | Directory containing source and test files | No | `src` |
+| `requirements-file` | Path to requirements.txt (relative to repo root) | No | `src/requirements.txt` |
+| `test-file` | Test file or directory to run (relative to working-directory) | No | `test_app.py` |
+| `source-module` | Source module name for coverage measurement | No | `app` |
+| `coverage-threshold` | Minimum required coverage percentage | No | `90` |
+
+### Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `GH_TOKEN` | GitHub token for issue creation |
+| `COPILOT_GITHUB_TOKEN` | Token for Copilot CLI authentication |
+
+### Usage
+
+```yaml
+name: Test and Coverage
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    uses: ./.github/workflows/auto-update-unit-tests.yml
+    with:
+      python-version: "3.12"
+      working-directory: "myapp"
+      test-file: "tests/"
+      source-module: "myapp"
+      coverage-threshold: 80
+    secrets: inherit
+```
+
+### What Happens When Coverage Is Low
+
+1. Test results and coverage reports are uploaded as artifacts
+2. A PR comment is posted with test results (on pull requests)
+3. If coverage is below the threshold, Copilot CLI analyzes the source code and tests
+4. A GitHub issue is created with specific uncovered areas, suggested test code, and acceptance criteria
+5. `@copilot` is assigned to implement the missing tests
 
 ---
 
