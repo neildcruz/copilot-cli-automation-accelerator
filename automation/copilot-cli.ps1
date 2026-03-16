@@ -1513,7 +1513,19 @@ function Install-AgentToRepository {
     }
     
     $agentFileName = Split-Path -Leaf $AgentFile
-    $targetDir = Join-Path (Get-Location) ".github" "agents"
+    
+    # Find the git repository root so the agent is installed where Copilot CLI expects it
+    $repoRoot = Get-Location
+    try {
+        $gitRoot = (git rev-parse --show-toplevel 2>$null)
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($gitRoot)) {
+            $repoRoot = $gitRoot
+        }
+    } catch {
+        Write-Log "Could not determine git root, using current directory"
+    }
+    
+    $targetDir = Join-Path $repoRoot ".github" "agents"
     $targetFile = Join-Path $targetDir $agentFileName
     
     if (Test-Path $targetFile) {
