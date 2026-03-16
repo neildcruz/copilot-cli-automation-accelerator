@@ -862,6 +862,36 @@ function Download-File {
     }
 }
 
+function Update-CopilotCli {
+    <#
+    .SYNOPSIS
+        Upgrade GitHub Copilot CLI to the latest version if already installed
+    #>
+    Write-Step "Checking GitHub Copilot CLI..."
+
+    $isInstalled = Test-CopilotCliInstalled
+    if (-not $isInstalled) {
+        Write-Info "GitHub Copilot CLI is not installed - skipping upgrade"
+        Write-Info "Install it later with: npm install -g @github/copilot"
+        return
+    }
+
+    Write-Info "GitHub Copilot CLI is already installed - upgrading to latest version..."
+    try {
+        $output = & npm install -g @github/copilot 2>&1
+        if ($LASTEXITCODE -eq 0) {
+            Write-Success "GitHub Copilot CLI upgraded to the latest version"
+        } else {
+            Write-Warning "Could not upgrade GitHub Copilot CLI: $output"
+            Write-Info "You can upgrade manually with: npm install -g @github/copilot"
+        }
+    }
+    catch {
+        Write-Warning "Could not upgrade GitHub Copilot CLI: $_"
+        Write-Info "You can upgrade manually with: npm install -g @github/copilot"
+    }
+}
+
 function Set-ExecutablePermissions {
     Write-Step "Setting executable permissions..."
     
@@ -1092,6 +1122,9 @@ function Main {
         
         # Step 5: Set permissions
         Set-ExecutablePermissions
+        
+        # Step 5.5: Upgrade Copilot CLI if already installed
+        Update-CopilotCli
         
         # Step 6: Clean up backup if update was successful
         if ($backupPath -and (Test-Path $backupPath) -and $Update) {
