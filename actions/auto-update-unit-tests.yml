@@ -1,0 +1,570 @@
+name: Unit Tests
+
+on:
+  # Reusable workflow - can be called from other workflows
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Python version to use"
+        required: false
+        type: string
+        default: "3.11"
+      working-directory:
+        description: "Directory containing the source and test files"
+        required: false
+        type: string
+        default: "src"
+      requirements-file:
+        description: "Path to requirements.txt (relative to repo root)"
+        required: false
+        type: string
+        default: "src/requirements.txt"
+      test-file:
+        description: "Test file or directory to run (relative to working-directory)"
+        required: false
+        type: string
+        default: "test_app.py"
+      source-module:
+        description: "Source module name for coverage measurement"
+        required: false
+        type: string
+        default: "app"
+      coverage-threshold:
+        description: "Minimum required coverage percentage"
+        required: false
+        type: number
+        default: 90
+    secrets:
+      GH_TOKEN:
+        required: true
+      COPILOT_GITHUB_TOKEN:
+        required: true
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      python-version:
+        description: "Python version to use"
+        required: false
+        type: string
+        default: "3.11"
+      working-directory:
+        description: "Directory containing the source and test files"
+        required: false
+        type: string
+        default: "src"
+      requirements-file:
+        description: "Path to requirements.txt (relative to repo root)"
+        required: false
+        type: string
+        default: "src/requirements.txt"
+      test-file:
+        description: "Test file or directory to run (relative to working-directory)"
+        required: false
+        type: string
+        default: "test_app.py"
+      source-module:
+        description: "Source module name for coverage measurement"
+        required: false
+        type: string
+        default: "app"
+      coverage-threshold:
+        description: "Minimum required coverage percentage"
+        required: false
+        type: number
+        default: 90
+
+env:
+  COVERAGE_THRESHOLD: ${{ inputs.coverage-threshold || 90 }}
+  WORKING_DIR: ${{ inputs.working-directory || 'src' }}
+  TEST_FILE: ${{ inputs.test-file || 'test_app.py' }}
+  SOURCE_MODULE: ${{ inputs.source-module || 'app' }}
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      checks: write
+      pull-requests: write
+    outputs:
+      coverage: ${{ steps.test.outputs.coverage }}
+      coverage_met: ${{ steps.check-coverage.outputs.coverage_met }}
+      passed: ${{ steps.test.outputs.passed }}
+      failed: ${{ steps.test.outputs.failed }}
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ inputs.python-version || '3.11' }}
+          cache: 'pip'
+          cache-dependency-path: ${{ inputs.requirements-file || 'src/requirements.txt' }}
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r ${{ inputs.requirements-file || 'src/requirements.txt' }}
+
+      - name: Run unit tests with coverage
+        id: test
+        working-directory: ${{ env.WORKING_DIR }}
+        run: |
+          python -m pytest ${{ env.TEST_FILE }} \
+            -v \
+            --tb=short \
+            --cov=${{ env.SOURCE_MODULE }} \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-report=html:coverage_html \
+            --cov-report=json:coverage.json \
+            --junitxml=test-results.xml \
+            2>&1 | tee test-output.txt
+          
+          # Capture test result
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          echo "exit_code=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+          
+          # Extract summary for PR comment
+          PASSED=$(grep -oP '\d+(?= passed)' test-output.txt | head -1 || echo "0")
+          FAILED=$(grep -oP '\d+(?= failed)' test-output.txt | head -1 || echo "0")
+          
+          # Extract coverage percentage from JSON (more reliable)
+          COVERAGE=$(python -c "import json; data=json.load(open('coverage.json')); print(int(data['totals']['percent_covered']))" 2>/dev/null || echo "0")
+          
+          echo "passed=$PASSED" >> $GITHUB_OUTPUT
+          echo "failed=$FAILED" >> $GITHUB_OUTPUT
+          echo "coverage=$COVERAGE" >> $GITHUB_OUTPUT
+          
+          echo "Test Results: $PASSED passed, $FAILED failed"
+          echo "Code Coverage: $COVERAGE%"
+          
+          exit $TEST_EXIT_CODE
+
+      - name: Check coverage threshold
+        id: check-coverage
+        run: |
+          COVERAGE=${{ steps.test.outputs.coverage }}
+          THRESHOLD=${{ env.COVERAGE_THRESHOLD }}
+          
+          echo "Coverage: $COVERAGE%"
+          echo "Threshold: $THRESHOLD%"
+          
+          if [ "$COVERAGE" -ge "$THRESHOLD" ]; then
+            echo "✅ Coverage meets threshold ($COVERAGE% >= $THRESHOLD%)"
+            echo "coverage_met=true" >> $GITHUB_OUTPUT
+          else
+            echo "⚠️ Coverage below threshold ($COVERAGE% < $THRESHOLD%)"
+            echo "coverage_met=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload test results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: test-results
+          path: |
+            ${{ env.WORKING_DIR }}/test-results.xml
+            ${{ env.WORKING_DIR }}/coverage.xml
+            ${{ env.WORKING_DIR }}/coverage.json
+            ${{ env.WORKING_DIR }}/coverage_html/
+            ${{ env.WORKING_DIR }}/test-output.txt
+          retention-days: 30
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: ${{ env.WORKING_DIR }}/coverage_html/
+          retention-days: 30
+
+      - name: Test Summary
+        if: always()
+        run: |
+          echo "## 🧪 Unit Test Results" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.test.outputs.exit_code }}" == "0" ]; then
+            echo "### ✅ All Tests Passed" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ❌ Some Tests Failed" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests Passed | ${{ steps.test.outputs.passed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Tests Failed | ${{ steps.test.outputs.failed }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Code Coverage | ${{ steps.test.outputs.coverage }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage Threshold | ${{ env.COVERAGE_THRESHOLD }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          
+          if [ "${{ steps.check-coverage.outputs.coverage_met }}" == "true" ]; then
+            echo "### ✅ Coverage threshold met" >> $GITHUB_STEP_SUMMARY
+          else
+            echo "### ⚠️ Coverage below threshold - Analysis will be triggered" >> $GITHUB_STEP_SUMMARY
+          fi
+          
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "📊 Full coverage report available in workflow artifacts." >> $GITHUB_STEP_SUMMARY
+
+      - name: Comment on PR with test results
+        if: github.event_name == 'pull_request' && always()
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const passed = '${{ steps.test.outputs.passed }}';
+            const failed = '${{ steps.test.outputs.failed }}';
+            const coverage = '${{ steps.test.outputs.coverage }}';
+            const exitCode = '${{ steps.test.outputs.exit_code }}';
+            const coverageMet = '${{ steps.check-coverage.outputs.coverage_met }}';
+            const threshold = '${{ env.COVERAGE_THRESHOLD }}';
+            
+            const status = exitCode === '0' ? '✅ All Tests Passed' : '❌ Some Tests Failed';
+            const emoji = exitCode === '0' ? '🎉' : '⚠️';
+            const coverageStatus = coverageMet === 'true' 
+              ? `✅ Coverage meets threshold (${coverage}% >= ${threshold}%)`
+              : `⚠️ Coverage below threshold (${coverage}% < ${threshold}%) - Analysis triggered`;
+            
+            const body = `## ${emoji} Unit Test Results
+            
+            ${status}
+            
+            | Metric | Value |
+            |--------|-------|
+            | Tests Passed | ${passed} |
+            | Tests Failed | ${failed} |
+            | Code Coverage | ${coverage}% |
+            | Threshold | ${threshold}% |
+            
+            ${coverageStatus}
+            
+            📊 [View full coverage report](${process.env.GITHUB_SERVER_URL}/${process.env.GITHUB_REPOSITORY}/actions/runs/${process.env.GITHUB_RUN_ID})
+            `;
+            
+            github.rest.issues.createComment({
+              issue_number: context.issue.number,
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              body: body
+            });
+
+  # Coverage Analysis job - triggered when coverage is below threshold
+  coverage-analysis:
+    needs: test
+    if: needs.test.outputs.coverage_met == 'false'
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download test results
+        uses: actions/download-artifact@v4
+        with:
+          name: test-results
+          path: ./test-results
+
+      - name: Install Copilot CLI
+        run: |
+          curl -fsSL https://gh.io/copilot-install | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Prepare coverage analysis context
+        id: prepare-context
+        run: |
+          echo "=== COVERAGE ANALYSIS CONTEXT ===" > /tmp/coverage-context.txt
+          echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> /tmp/coverage-context.txt
+          echo "Commit SHA: ${{ github.sha }}" >> /tmp/coverage-context.txt
+          echo "Branch: ${{ github.ref_name }}" >> /tmp/coverage-context.txt
+          echo "Actor: ${{ github.actor }}" >> /tmp/coverage-context.txt
+          echo "Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> /tmp/coverage-context.txt
+          echo "" >> /tmp/coverage-context.txt
+          
+          echo "=== COVERAGE METRICS ===" >> /tmp/coverage-context.txt
+          echo "Current Coverage: ${{ needs.test.outputs.coverage }}%" >> /tmp/coverage-context.txt
+          echo "Required Threshold: ${{ env.COVERAGE_THRESHOLD }}%" >> /tmp/coverage-context.txt
+          echo "Coverage Gap: $(( ${{ env.COVERAGE_THRESHOLD }} - ${{ needs.test.outputs.coverage }} ))%" >> /tmp/coverage-context.txt
+          echo "" >> /tmp/coverage-context.txt
+          
+          echo "=== TEST RESULTS ===" >> /tmp/coverage-context.txt
+          echo "Tests Passed: ${{ needs.test.outputs.passed }}" >> /tmp/coverage-context.txt
+          echo "Tests Failed: ${{ needs.test.outputs.failed }}" >> /tmp/coverage-context.txt
+          echo "" >> /tmp/coverage-context.txt
+          
+          echo "=== COVERAGE REPORT ===" >> /tmp/coverage-context.txt
+          if [ -f ./test-results/test-output.txt ]; then
+            cat ./test-results/test-output.txt >> /tmp/coverage-context.txt
+          fi
+          echo "" >> /tmp/coverage-context.txt
+          
+          echo "=== SOURCE CODE FILES ===" >> /tmp/coverage-context.txt
+          echo "Main application file (${{ env.WORKING_DIR }}/${{ env.SOURCE_MODULE }}.py):" >> /tmp/coverage-context.txt
+          cat ${{ env.WORKING_DIR }}/${{ env.SOURCE_MODULE }}.py >> /tmp/coverage-context.txt 2>/dev/null || echo "Source file not found" >> /tmp/coverage-context.txt
+          echo "" >> /tmp/coverage-context.txt
+          
+          echo "=== EXISTING TEST FILE ===" >> /tmp/coverage-context.txt
+          echo "Test file (${{ env.WORKING_DIR }}/${{ env.TEST_FILE }}):" >> /tmp/coverage-context.txt
+          cat ${{ env.WORKING_DIR }}/${{ env.TEST_FILE }} >> /tmp/coverage-context.txt 2>/dev/null || echo "Test file not found" >> /tmp/coverage-context.txt
+          echo "" >> /tmp/coverage-context.txt
+          
+          echo "Context prepared successfully"
+
+      - name: Analyze coverage with Copilot CLI
+        id: ai-analysis
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          echo "Generating AI coverage analysis with Copilot CLI..."
+          
+          # Build the analysis prompt
+          cat > /tmp/analysis-prompt.txt << 'PROMPT_END'
+          You are a test coverage expert analyzing a Python Flask application.
+          
+          The current test coverage is below the required threshold. Analyze the code and test file to identify:
+          1. Which functions/methods are NOT covered by tests
+          2. Which code paths (branches, error handlers) are missing tests
+          3. Specific test cases that should be added
+          
+          Provide your response in this EXACT format:
+          
+          ISSUE_TITLE: <A short title describing the coverage gap (max 80 chars)>
+          
+          ## Coverage Analysis Summary
+          
+          **Current Coverage:** [X]%
+          **Required Threshold:** [Y]%
+          **Coverage Gap:** [Z]%
+          
+          ## Uncovered Code Areas
+          
+          <List specific functions, methods, or code blocks that lack test coverage>
+          
+          ## Missing Test Cases
+          
+          <Provide specific test cases that should be added, with code examples>
+          
+          ## Recommended Actions
+          
+          <Prioritized list of actions to improve coverage>
+          
+          ## Suggested Test Code
+          
+          <Provide actual pytest test code snippets that can be added>
+          
+          Be specific and actionable. Include actual code that can be added to the test file.
+          
+          PROMPT_END
+          
+          echo "" >> /tmp/analysis-prompt.txt
+          cat /tmp/coverage-context.txt >> /tmp/analysis-prompt.txt
+          
+          # Run Copilot analysis
+          copilot --version || echo "Version check failed"
+          
+          if AI_RESPONSE=$(copilot -p "$(cat /tmp/analysis-prompt.txt)" --allow-all-tools 2>&1); then
+            echo "Copilot analysis succeeded"
+            
+            # Extract title from response
+            ISSUE_TITLE=$(echo "$AI_RESPONSE" | grep -m1 "^ISSUE_TITLE:" | sed 's/^ISSUE_TITLE:[[:space:]]*//' | head -c 80)
+            
+            # Remove the ISSUE_TITLE line from the analysis
+            AI_ANALYSIS=$(echo "$AI_RESPONSE" | grep -v "^ISSUE_TITLE:")
+            
+            # Default title if not found
+            if [ -z "$ISSUE_TITLE" ]; then
+              ISSUE_TITLE="Test Coverage Below ${COVERAGE_THRESHOLD}% - Needs Improvement"
+            fi
+          else
+            echo "Copilot analysis failed with exit code: $?"
+            echo "Output was: $AI_RESPONSE"
+            ISSUE_TITLE="Test Coverage Below Threshold - Manual Analysis Required"
+            AI_ANALYSIS="## Automated Coverage Analysis
+
+          **Note:** Copilot CLI analysis encountered an issue.
+
+          ### Current Status
+          - Coverage: ${{ needs.test.outputs.coverage }}%
+          - Threshold: ${{ env.COVERAGE_THRESHOLD }}%
+
+          ### Coverage Report
+          \`\`\`
+          $(cat ./test-results/test-output.txt | head -100)
+          \`\`\`
+
+          Please review the coverage report and add missing tests manually."
+          fi
+          
+          echo "=== AI Analysis Result ==="
+          echo "Title: $ISSUE_TITLE"
+          echo "$AI_ANALYSIS"
+          echo "=========================="
+          
+          # Save outputs to files
+          echo "$AI_ANALYSIS" > /tmp/ai_analysis.txt
+          echo "$ISSUE_TITLE" > /tmp/issue_title.txt
+
+      - name: Create GitHub Issue via Copilot CLI
+        id: copilot-issue
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          AI_ANALYSIS=$(cat /tmp/ai_analysis.txt 2>/dev/null || echo "Analysis not available")
+          
+          # Build the prompt for issue creation
+          cat > /tmp/copilot_prompt.txt << 'PROMPT_EOF'
+          Create a GitHub issue in this repository for improving test coverage.
+          
+          Please create the issue with:
+          1. A descriptive title starting with 🧪
+          2. Labels: testing, enhancement, automated
+          3. A well-formatted body with the coverage analysis below
+          4. After creating the issue, assign the Copilot coding agent to it using: gh issue edit <number> --add-assignee @copilot
+             IMPORTANT: Use @copilot with the @ symbol, not just "copilot"
+          
+          The issue should request @copilot to implement the suggested test improvements.
+          
+          PROMPT_EOF
+          
+          echo "" >> /tmp/copilot_prompt.txt
+          echo "=== CONTEXT ===" >> /tmp/copilot_prompt.txt
+          echo "Repository: ${{ github.repository }}" >> /tmp/copilot_prompt.txt
+          echo "Branch: ${{ github.ref_name }}" >> /tmp/copilot_prompt.txt
+          echo "Commit: ${{ github.sha }}" >> /tmp/copilot_prompt.txt
+          echo "Current Coverage: ${{ needs.test.outputs.coverage }}%" >> /tmp/copilot_prompt.txt
+          echo "Required Threshold: ${{ env.COVERAGE_THRESHOLD }}%" >> /tmp/copilot_prompt.txt
+          echo "Workflow Run: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> /tmp/copilot_prompt.txt
+          echo "" >> /tmp/copilot_prompt.txt
+          echo "=== COVERAGE ANALYSIS ===" >> /tmp/copilot_prompt.txt
+          cat /tmp/ai_analysis.txt >> /tmp/copilot_prompt.txt 2>/dev/null || echo "Not available" >> /tmp/copilot_prompt.txt
+          
+          echo "Asking Copilot CLI to create the GitHub issue..."
+          PROMPT=$(cat /tmp/copilot_prompt.txt)
+          copilot -p "$PROMPT" --allow-all-tools
+
+      # Fallback: Manual issue creation if Copilot CLI fails
+      - name: Fallback - Create GitHub Issue Manually
+        if: steps.copilot-issue.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "Copilot CLI failed to create issue, falling back to manual creation..."
+          
+          # Create issue body
+          cat > /tmp/issue_body.md << 'ISSUE_EOF'
+          ## 🧪 Test Coverage Improvement Required
+
+          **Workflow Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          **Triggered by:** @${{ github.actor }}
+          **Branch:** `${{ github.ref_name }}`
+          **Commit:** [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+
+          ---
+
+          ## 📊 Coverage Status
+
+          | Metric | Value |
+          |--------|-------|
+          | Current Coverage | ${{ needs.test.outputs.coverage }}% |
+          | Required Threshold | ${{ env.COVERAGE_THRESHOLD }}% |
+          | Coverage Gap | $(( ${{ env.COVERAGE_THRESHOLD }} - ${{ needs.test.outputs.coverage }} ))% |
+          | Tests Passed | ${{ needs.test.outputs.passed }} |
+          | Tests Failed | ${{ needs.test.outputs.failed }} |
+
+          ---
+
+          ## 🤖 AI-Generated Coverage Analysis
+
+          ISSUE_EOF
+          
+          # Append AI analysis
+          cat /tmp/ai_analysis.txt >> /tmp/issue_body.md 2>/dev/null || echo "AI analysis not available" >> /tmp/issue_body.md
+          
+          cat >> /tmp/issue_body.md << 'ISSUE_EOF2'
+
+          ---
+
+          ## 📋 Coverage Report Details
+
+          <details>
+          <summary>Click to expand test output</summary>
+
+          ```
+          ISSUE_EOF2
+          
+          cat ./test-results/test-output.txt >> /tmp/issue_body.md 2>/dev/null || echo "Test output not available" >> /tmp/issue_body.md
+          
+          cat >> /tmp/issue_body.md << 'ISSUE_EOF3'
+          ```
+
+          </details>
+
+          ---
+
+          ## ✅ Acceptance Criteria
+
+          - [ ] Increase test coverage to at least ${{ env.COVERAGE_THRESHOLD }}%
+          - [ ] Add tests for uncovered code paths identified above
+          - [ ] All new tests must pass
+          - [ ] No decrease in existing coverage
+
+          ---
+
+          ## 🤖 Instructions for @copilot
+
+          Please implement the suggested test improvements from the analysis above. Focus on:
+          1. Adding tests for uncovered functions and methods
+          2. Testing error handling paths
+          3. Testing edge cases mentioned in the analysis
+
+          After making changes, ensure all tests pass with `pytest ${{ env.TEST_FILE }} -v --cov=${{ env.SOURCE_MODULE }}`.
+          ISSUE_EOF3
+
+          # Get the AI-generated title
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt 2>/dev/null || echo "Test Coverage Below Threshold")
+          echo "Using issue title: $ISSUE_TITLE"
+
+          # Create issue
+          ISSUE_URL=$(gh issue create \
+            --title "🧪 $ISSUE_TITLE" \
+            --body-file /tmp/issue_body.md \
+            --label "testing,enhancement,automated")
+          
+          echo "Issue created: $ISSUE_URL"
+          ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+          echo "Issue number: $ISSUE_NUMBER"
+          
+          # Assign Copilot to the issue
+          echo "Assigning @copilot to issue #$ISSUE_NUMBER..."
+          gh issue edit $ISSUE_NUMBER --add-assignee @copilot || \
+            echo "Note: Could not assign @copilot - you can manually assign from the issue page"
+
+      - name: Coverage Analysis Summary
+        if: always()
+        run: |
+          echo "## 🔍 Coverage Analysis Complete" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Coverage Gap Detected" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Metric | Value |" >> $GITHUB_STEP_SUMMARY
+          echo "|--------|-------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Current Coverage | ${{ needs.test.outputs.coverage }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Required Threshold | ${{ env.COVERAGE_THRESHOLD }}% |" >> $GITHUB_STEP_SUMMARY
+          echo "| Coverage Gap | $(( ${{ env.COVERAGE_THRESHOLD }} - ${{ needs.test.outputs.coverage }} ))% |" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "### Actions Taken" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Analyzed codebase with Copilot CLI" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Identified uncovered code areas" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Created GitHub issue with improvement suggestions" >> $GITHUB_STEP_SUMMARY
+          echo "- ✅ Assigned @copilot to implement improvements" >> $GITHUB_STEP_SUMMARY
+

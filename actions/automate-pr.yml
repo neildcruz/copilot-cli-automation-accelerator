@@ -1,0 +1,742 @@
+name: Automate PR from Issue
+
+on:
+  # Reusable workflow - can be called from other workflows
+  workflow_call:
+    inputs:
+      label-name:
+        description: "Issue label that triggers the automation"
+        required: false
+        type: string
+        default: "automate-pr"
+      brd-agent-file:
+        description: "Path to the BRD agent prompt file (relative to repo root)"
+        required: false
+        type: string
+        default: ".github/agents/brd.agent.md"
+      architect-agent-file:
+        description: "Path to the Architect agent prompt file (relative to repo root)"
+        required: false
+        type: string
+        default: ".github/agents/architect.agent.md"
+      engineer-agent-file:
+        description: "Path to the Engineer agent prompt file (relative to repo root)"
+        required: false
+        type: string
+        default: ".github/agents/engineer.agent.md"
+      working-directory:
+        description: "Directory containing the source and test files"
+        required: false
+        type: string
+        default: "src"
+      requirements-file:
+        description: "Path to requirements.txt (relative to repo root)"
+        required: false
+        type: string
+        default: "src/requirements.txt"
+      test-file:
+        description: "Test file or directory to run (relative to working-directory)"
+        required: false
+        type: string
+        default: "test_app.py"
+      source-module:
+        description: "Source module name for coverage measurement"
+        required: false
+        type: string
+        default: "app"
+      base-branch:
+        description: "Base branch to create the feature branch from and target the PR against"
+        required: false
+        type: string
+        default: "main"
+      run-tests:
+        description: "Whether to run unit tests after implementation"
+        required: false
+        type: boolean
+        default: true
+      artifact-retention-days:
+        description: "Number of days to retain workflow artifacts"
+        required: false
+        type: number
+        default: 30
+      pr-labels:
+        description: "Comma-separated labels to apply to the created PR"
+        required: false
+        type: string
+        default: "automated,enhancement"
+    secrets:
+      GH_TOKEN:
+        required: true
+      COPILOT_GITHUB_TOKEN:
+        required: true
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      issue-number:
+        description: "Issue number to automate"
+        required: true
+        type: number
+      label-name:
+        description: "Issue label that triggers the automation"
+        required: false
+        type: string
+        default: "automate-pr"
+      brd-agent-file:
+        description: "Path to the BRD agent prompt file (relative to repo root)"
+        required: false
+        type: string
+        default: ".github/agents/brd.agent.md"
+      architect-agent-file:
+        description: "Path to the Architect agent prompt file (relative to repo root)"
+        required: false
+        type: string
+        default: ".github/agents/architect.agent.md"
+      engineer-agent-file:
+        description: "Path to the Engineer agent prompt file (relative to repo root)"
+        required: false
+        type: string
+        default: ".github/agents/engineer.agent.md"
+      working-directory:
+        description: "Directory containing the source and test files"
+        required: false
+        type: string
+        default: "src"
+      requirements-file:
+        description: "Path to requirements.txt (relative to repo root)"
+        required: false
+        type: string
+        default: "src/requirements.txt"
+      test-file:
+        description: "Test file or directory to run (relative to working-directory)"
+        required: false
+        type: string
+        default: "test_app.py"
+      source-module:
+        description: "Source module name for coverage measurement"
+        required: false
+        type: string
+        default: "app"
+      base-branch:
+        description: "Base branch to create the feature branch from and target the PR against"
+        required: false
+        type: string
+        default: "main"
+      run-tests:
+        description: "Whether to run unit tests after implementation"
+        required: false
+        type: boolean
+        default: true
+      artifact-retention-days:
+        description: "Number of days to retain workflow artifacts"
+        required: false
+        type: number
+        default: 30
+      pr-labels:
+        description: "Comma-separated labels to apply to the created PR"
+        required: false
+        type: string
+        default: "automated,enhancement"
+
+  # Triggered by issue label
+  issues:
+    types: [labeled]
+
+env:
+  LABEL_NAME: ${{ inputs.label-name || 'automate-pr' }}
+  WORKING_DIR: ${{ inputs.working-directory || 'src' }}
+  TEST_FILE: ${{ inputs.test-file || 'test_app.py' }}
+  SOURCE_MODULE: ${{ inputs.source-module || 'app' }}
+  BASE_BRANCH: ${{ inputs.base-branch || 'main' }}
+  BRD_AGENT_FILE: ${{ inputs.brd-agent-file || '.github/agents/brd.agent.md' }}
+  ARCHITECT_AGENT_FILE: ${{ inputs.architect-agent-file || '.github/agents/architect.agent.md' }}
+  ENGINEER_AGENT_FILE: ${{ inputs.engineer-agent-file || '.github/agents/engineer.agent.md' }}
+  REQUIREMENTS_FILE: ${{ inputs.requirements-file || 'src/requirements.txt' }}
+  RUN_TESTS: ${{ inputs.run-tests == '' && 'true' || inputs.run-tests }}
+  ARTIFACT_RETENTION: ${{ inputs.artifact-retention-days || 30 }}
+  PR_LABELS: ${{ inputs.pr-labels || 'automated,enhancement' }}
+
+jobs:
+  multi-agent-automation:
+    # Only run when the specific label is added (for issue trigger) or always for workflow_call/dispatch
+    if: >
+      github.event_name == 'workflow_call' ||
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'issues' && github.event.label.name == (inputs.label-name || 'automate-pr'))
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      issues: write
+      pull-requests: write
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GH_TOKEN }}
+          fetch-depth: 0
+
+      - name: Configure Git
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+
+      - name: Install Copilot CLI
+        run: |
+          curl -fsSL https://gh.io/copilot-install | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Fetch Issue Details
+        id: fetch-issue
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          # Support both issue-triggered and manual/reusable invocations
+          if [ "${{ github.event_name }}" = "issues" ]; then
+            ISSUE_NUMBER=${{ github.event.issue.number }}
+            ISSUE_TITLE="${{ github.event.issue.title }}"
+          else
+            ISSUE_NUMBER=${{ inputs.issue-number || github.event.issue.number }}
+            ISSUE_TITLE=$(gh issue view "$ISSUE_NUMBER" --json title -q '.title')
+          fi
+          
+          echo "Fetching details for issue #$ISSUE_NUMBER: $ISSUE_TITLE"
+          
+          # Fetch full issue details including comments
+          gh issue view "$ISSUE_NUMBER" --json title,body,comments > /tmp/issue_details.json
+          
+          # Extract issue body
+          ISSUE_BODY=$(jq -r '.body // "No description provided"' /tmp/issue_details.json)
+          
+          # Extract comments if any
+          COMMENTS=$(jq -r '.comments[]?.body // empty' /tmp/issue_details.json | head -50)
+          
+          # Save to files for later steps
+          echo "$ISSUE_TITLE" > /tmp/issue_title.txt
+          echo "$ISSUE_BODY" > /tmp/issue_body.txt
+          echo "$COMMENTS" > /tmp/issue_comments.txt
+          
+          echo "Issue details fetched successfully"
+          echo "ISSUE_NUMBER=$ISSUE_NUMBER" >> $GITHUB_OUTPUT
+
+      - name: BRD Agent - Generating the Design Document
+        id: brd-agent
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ISSUE_NUMBER=${{ steps.fetch-issue.outputs.ISSUE_NUMBER }}
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt)
+          ISSUE_BODY=$(cat /tmp/issue_body.txt)
+          ISSUE_COMMENTS=$(cat /tmp/issue_comments.txt)
+          
+          echo "=== 📋 BRD Agent: Generating Business Requirements Document ==="
+          
+          # Create artifacts directory
+          mkdir -p ./artifacts
+          
+          # Read the BRD agent prompt from the agent file
+          BRD_AGENT_PROMPT=$(cat "${{ env.BRD_AGENT_FILE }}")
+          
+          # Build the full prompt with issue context
+          cat > /tmp/brd_prompt.txt << PROMPT_END
+          $BRD_AGENT_PROMPT
+
+          ---
+
+          ## GitHub Issue Context
+
+          **Issue Number:** #$ISSUE_NUMBER
+          **Title:** $ISSUE_TITLE
+
+          **Description:**
+          $ISSUE_BODY
+
+          PROMPT_END
+          
+          # Append comments if available
+          if [ -n "$ISSUE_COMMENTS" ]; then
+            echo "" >> /tmp/brd_prompt.txt
+            echo "**Additional Comments:**" >> /tmp/brd_prompt.txt
+            echo "$ISSUE_COMMENTS" >> /tmp/brd_prompt.txt
+          fi
+          
+          echo "" >> /tmp/brd_prompt.txt
+          echo "---" >> /tmp/brd_prompt.txt
+          echo "" >> /tmp/brd_prompt.txt
+          echo "Now analyze the above GitHub issue and create the Business Requirements Document following the output format specified." >> /tmp/brd_prompt.txt
+          
+          # Generate BRD using Copilot CLI
+          echo "Calling Copilot CLI (BRD Agent)..."
+          BRD_DOC=$(copilot -p "$(cat /tmp/brd_prompt.txt)" 2>&1) || {
+            echo "Copilot CLI failed, using issue body as fallback"
+            BRD_DOC="# Business Requirements Document
+
+          ## Feature: $ISSUE_TITLE
+
+          ### Description
+          $ISSUE_BODY
+
+          ### Requirements
+          Please implement the feature as described in the issue."
+          }
+          
+          # Save BRD document
+          echo "$BRD_DOC" > /tmp/brd_document.md
+          cp /tmp/brd_document.md ./artifacts/brd_document.md
+          
+          echo "=== BRD Document Generated ==="
+          cat /tmp/brd_document.md
+          echo "==============================="
+
+      - name: Architect Agent - Planning Tasks and Architecture
+        id: architect-agent
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ISSUE_NUMBER=${{ steps.fetch-issue.outputs.ISSUE_NUMBER }}
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt)
+          BRD_DOC=$(cat /tmp/brd_document.md)
+          
+          echo "=== 🏗️ Architect Agent: Planning Tasks and Architecture ==="
+          
+          # Read the Architect agent prompt from the agent file
+          ARCHITECT_AGENT_PROMPT=$(cat "${{ env.ARCHITECT_AGENT_FILE }}")
+          
+          # Build the full prompt with BRD context
+          cat > /tmp/architect_prompt.txt << PROMPT_END
+          $ARCHITECT_AGENT_PROMPT
+
+          ---
+
+          ## Business Requirements Document (from BRD Agent)
+
+          $BRD_DOC
+
+          ---
+
+          Now analyze the above BRD and create the Architecture and Action Plan following the output format specified.
+          PROMPT_END
+          
+          # Generate Architecture document using Copilot CLI
+          echo "Calling Copilot CLI (Architect Agent)..."
+          ARCH_DOC=$(copilot -p "$(cat /tmp/architect_prompt.txt)" 2>&1) || {
+            echo "Copilot CLI failed, using fallback"
+            ARCH_DOC="# Architecture and Action Plan
+
+          ## Feature: $ISSUE_TITLE
+
+          ### Technical Approach
+          Please review the BRD and implement accordingly.
+
+          ### Files to Modify
+          - See issue for details"
+          }
+          
+          # Save Architecture document
+          echo "$ARCH_DOC" > /tmp/architecture_document.md
+          cp /tmp/architecture_document.md ./artifacts/architecture_document.md
+          
+          echo "=== Architecture Document Generated ==="
+          cat /tmp/architecture_document.md
+          echo "========================================"
+
+      - name: Create Feature Branch
+        id: create-branch
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ISSUE_NUMBER=${{ steps.fetch-issue.outputs.ISSUE_NUMBER }}
+          
+          # Create a sanitized branch name from issue title
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt | tr '[:upper:]' '[:lower:]' | sed 's/[^a-z0-9]/-/g' | sed 's/--*/-/g' | cut -c1-40)
+          BRANCH_NAME="feature/issue-${ISSUE_NUMBER}-${ISSUE_TITLE}"
+          
+          echo "Creating branch: $BRANCH_NAME"
+          
+          # Ensure we're on the base branch and up to date
+          git checkout "${{ env.BASE_BRANCH }}"
+          git pull origin "${{ env.BASE_BRANCH }}"
+          
+          # Create and checkout new branch
+          git checkout -b "$BRANCH_NAME"
+          
+          echo "BRANCH_NAME=$BRANCH_NAME" >> $GITHUB_OUTPUT
+          echo "Branch $BRANCH_NAME created successfully"
+
+      - name: Engineer Agent - Implementing the Feature
+        id: engineer-agent
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ISSUE_NUMBER=${{ steps.fetch-issue.outputs.ISSUE_NUMBER }}
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt)
+          BRD_DOC=$(cat /tmp/brd_document.md)
+          ARCH_DOC=$(cat /tmp/architecture_document.md)
+          
+          echo "=== 👨‍💻 Engineer Agent: Implementing the Feature ==="
+          
+          # Read the Engineer agent prompt from the agent file
+          ENGINEER_AGENT_PROMPT=$(cat "${{ env.ENGINEER_AGENT_FILE }}")
+          
+          # Build the full prompt with context from both agents
+          cat > /tmp/engineer_prompt.txt << PROMPT_END
+          $ENGINEER_AGENT_PROMPT
+
+          ---
+
+          ## Business Requirements Document (from BRD Agent)
+
+          $BRD_DOC
+
+          ---
+
+          ## Architecture and Action Plan (from Architect Agent)
+
+          $ARCH_DOC
+
+          ---
+
+          Now implement the feature following the Architecture Plan's task breakdown. Use the tools available to read files, make changes, and create the implementation.
+          PROMPT_END
+          
+          # Let Copilot CLI implement the feature with full tool access
+          echo "Calling Copilot CLI (Engineer Agent) to implement the feature..."
+          IMPLEMENTATION_RESULT=$(copilot -p "$(cat /tmp/engineer_prompt.txt)" --allow-all-tools 2>&1) || {
+            echo "WARNING: Engineer Agent encountered an issue"
+            echo "$IMPLEMENTATION_RESULT"
+          }
+          
+          echo "=== Implementation Result ==="
+          echo "$IMPLEMENTATION_RESULT"
+          echo "=============================="
+          
+          # Save implementation summary
+          echo "$IMPLEMENTATION_RESULT" > /tmp/implementation_summary.txt
+          cp /tmp/implementation_summary.txt ./artifacts/implementation_summary.txt
+
+      - name: Unit Testing - Running Tests
+        id: unit-testing
+        if: env.RUN_TESTS == 'true'
+        continue-on-error: true
+        run: |
+          echo "=== 🧪 Unit Testing: Running pytest ==="
+          
+          # Create test results directory
+          mkdir -p ./artifacts/test-results
+          
+          # Install dependencies
+          cd "${{ env.WORKING_DIR }}"
+          pip install -r "${{ github.workspace }}/${{ env.REQUIREMENTS_FILE }}"
+          pip install pytest pytest-cov pytest-json-report
+          
+          # Run tests with coverage and JSON report
+          pytest "${{ env.TEST_FILE }}" \
+            --cov="${{ env.SOURCE_MODULE }}" \
+            --cov-report=html:../artifacts/test-results/coverage_html \
+            --cov-report=json:../artifacts/test-results/coverage.json \
+            --cov-report=term \
+            --json-report \
+            --json-report-file=../artifacts/test-results/test_report.json \
+            -v 2>&1 | tee ../artifacts/test-results/test_output.txt
+          
+          TEST_EXIT_CODE=${PIPESTATUS[0]}
+          
+          cd ..
+          
+          # Parse test results and create summary
+          echo "=== Generating Test Summary ==="
+          
+          if [ -f ./artifacts/test-results/test_report.json ]; then
+            TOTAL_TESTS=$(jq '.summary.total // 0' ./artifacts/test-results/test_report.json)
+            PASSED_TESTS=$(jq '.summary.passed // 0' ./artifacts/test-results/test_report.json)
+            FAILED_TESTS=$(jq '.summary.failed // 0' ./artifacts/test-results/test_report.json)
+            SKIPPED_TESTS=$(jq '.summary.skipped // 0' ./artifacts/test-results/test_report.json)
+            DURATION=$(jq '.duration // 0' ./artifacts/test-results/test_report.json)
+          else
+            TOTAL_TESTS="N/A"
+            PASSED_TESTS="N/A"
+            FAILED_TESTS="N/A"
+            SKIPPED_TESTS="N/A"
+            DURATION="N/A"
+          fi
+          
+          if [ -f ./artifacts/test-results/coverage.json ]; then
+            COVERAGE_PERCENT=$(jq '.totals.percent_covered // 0' ./artifacts/test-results/coverage.json)
+          else
+            COVERAGE_PERCENT="N/A"
+          fi
+          
+          # Create test summary markdown
+          cat > ./artifacts/test-results/test_summary.md << SUMMARY_EOF
+          # 🧪 Unit Test Report
+          
+          ## Test Results Summary
+          
+          | Metric | Value |
+          |--------|-------|
+          | **Total Tests** | $TOTAL_TESTS |
+          | **Passed** | ✅ $PASSED_TESTS |
+          | **Failed** | ❌ $FAILED_TESTS |
+          | **Skipped** | ⏭️ $SKIPPED_TESTS |
+          | **Duration** | ${DURATION}s |
+          | **Coverage** | ${COVERAGE_PERCENT}% |
+          
+          ## Test Status
+          
+          $(if [ $TEST_EXIT_CODE -eq 0 ]; then echo "✅ **All tests passed!**"; else echo "❌ **Some tests failed.** Please review the test output."; fi)
+          
+          ## Detailed Output
+          
+          \`\`\`
+          $(cat ./artifacts/test-results/test_output.txt | tail -50)
+          \`\`\`
+          
+          ## Coverage Report
+          
+          The full HTML coverage report is available in the artifacts under \`test-results/coverage_html/\`.
+          SUMMARY_EOF
+          
+          # Save test results to output
+          echo "TEST_EXIT_CODE=$TEST_EXIT_CODE" >> $GITHUB_OUTPUT
+          echo "TOTAL_TESTS=$TOTAL_TESTS" >> $GITHUB_OUTPUT
+          echo "PASSED_TESTS=$PASSED_TESTS" >> $GITHUB_OUTPUT
+          echo "FAILED_TESTS=$FAILED_TESTS" >> $GITHUB_OUTPUT
+          echo "COVERAGE_PERCENT=$COVERAGE_PERCENT" >> $GITHUB_OUTPUT
+          
+          echo "=== Test Summary ==="
+          cat ./artifacts/test-results/test_summary.md
+          echo "===================="
+          
+          # Copy summary to tmp for PR body
+          cp ./artifacts/test-results/test_summary.md /tmp/test_summary.md
+          
+          # Exit with original test exit code
+          exit $TEST_EXIT_CODE
+
+      - name: Upload Agent Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: agent-documents-issue-${{ steps.fetch-issue.outputs.ISSUE_NUMBER }}
+          path: ./artifacts/
+          retention-days: ${{ env.ARTIFACT_RETENTION }}
+
+      - name: Commit Changes
+        id: commit-changes
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ISSUE_NUMBER=${{ steps.fetch-issue.outputs.ISSUE_NUMBER }}
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt)
+          
+          echo "=== Committing Changes ==="
+          
+          # Check if there are any changes to commit (excluding artifacts folder)
+          git add -A -- ':!./artifacts'
+          
+          if git diff --staged --quiet; then
+            echo "No changes detected. Engineer Agent may not have made file modifications."
+            echo "CHANGES_MADE=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+          
+          # Show what's being committed
+          echo "Files to be committed:"
+          git status --short
+          
+          # Commit with descriptive message
+          git commit -m "feat: Implement #$ISSUE_NUMBER - $ISSUE_TITLE
+
+          This commit implements the feature as described in issue #$ISSUE_NUMBER.
+          
+          Automated implementation by AI Agents:
+          - 📋 BRD Agent: Business Requirements
+          - 🏗️ Architect Agent: Technical Design
+          - 👨‍💻 Engineer Agent: Implementation
+          
+          Closes #$ISSUE_NUMBER"
+          
+          echo "CHANGES_MADE=true" >> $GITHUB_OUTPUT
+          echo "Changes committed successfully"
+
+      - name: Push Branch and Create Pull Request
+        id: create-pr
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          ISSUE_NUMBER=${{ steps.fetch-issue.outputs.ISSUE_NUMBER }}
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt)
+          BRANCH_NAME=${{ steps.create-branch.outputs.BRANCH_NAME }}
+          CHANGES_MADE=${{ steps.commit-changes.outputs.CHANGES_MADE }}
+          
+          if [ "$CHANGES_MADE" != "true" ]; then
+            echo "No changes were made, skipping PR creation"
+            # Add comment to issue
+            gh issue comment $ISSUE_NUMBER --body "⚠️ **Automated PR Creation Notice**
+            
+          The automation workflow ran but no code changes were detected. This might mean:
+          - The feature requires manual implementation
+          - The Copilot CLI couldn't determine the necessary changes
+          - The feature may already be implemented
+          
+          Please review the issue and implement manually if needed."
+            exit 0
+          fi
+          
+          echo "=== Pushing Branch and Creating PR ==="
+          
+          # Push the branch
+          git push origin "$BRANCH_NAME"
+          
+          # Read agent documents for PR body
+          BRD_DOC=$(cat /tmp/brd_document.md)
+          ARCH_DOC=$(cat /tmp/architecture_document.md)
+          IMPLEMENTATION_SUMMARY=$(cat /tmp/implementation_summary.txt 2>/dev/null | head -100 || echo "See commits for details")
+          TEST_SUMMARY=$(cat /tmp/test_summary.md 2>/dev/null || echo "Test results not available")
+          
+          # Get test results from previous step
+          TEST_EXIT_CODE=${{ steps.unit-testing.outputs.TEST_EXIT_CODE }}
+          TOTAL_TESTS=${{ steps.unit-testing.outputs.TOTAL_TESTS }}
+          PASSED_TESTS=${{ steps.unit-testing.outputs.PASSED_TESTS }}
+          FAILED_TESTS=${{ steps.unit-testing.outputs.FAILED_TESTS }}
+          COVERAGE_PERCENT=${{ steps.unit-testing.outputs.COVERAGE_PERCENT }}
+          
+          # Create PR body
+          cat > /tmp/pr_body.md << PR_EOF
+          ## 🤖 Automated PR for Issue #$ISSUE_NUMBER
+          
+          This pull request was automatically generated by the AI Agent workflow.
+          
+          ### 📋 Related Issue
+          Closes #$ISSUE_NUMBER
+          
+          ---
+          
+          ### 🧪 Unit Test Results
+          
+          | Metric | Value |
+          |--------|-------|
+          | **Total Tests** | $TOTAL_TESTS |
+          | **Passed** | ✅ $PASSED_TESTS |
+          | **Failed** | ❌ $FAILED_TESTS |
+          | **Coverage** | ${COVERAGE_PERCENT}% |
+          
+          $(if [ "$TEST_EXIT_CODE" = "0" ]; then echo "✅ **All tests passed!**"; else echo "⚠️ **Some tests failed.** Please review before merging."; fi)
+          
+          <details>
+          <summary>Click to expand full test report</summary>
+          
+          $TEST_SUMMARY
+          
+          </details>
+          
+          ---
+          
+          ### 📋 BRD Agent - Business Requirements Document
+          
+          <details>
+          <summary>Click to expand BRD</summary>
+          
+          $BRD_DOC
+          
+          </details>
+          
+          ---
+          
+          ### 🏗️ Architect Agent - Architecture and Action Plan
+          
+          <details>
+          <summary>Click to expand Architecture Document</summary>
+          
+          $ARCH_DOC
+          
+          </details>
+          
+          ---
+          
+          ### 👨‍💻 Engineer Agent - Implementation Summary
+          
+          <details>
+          <summary>Click to expand implementation details</summary>
+          
+          $IMPLEMENTATION_SUMMARY
+          
+          </details>
+          
+          ---
+          
+          ### ✅ Checklist
+          
+          - [ ] Code follows project conventions
+          - [x] Unit tests executed (see results above)
+          - [ ] Changes have been tested locally
+          - [ ] Documentation updated (if needed)
+          
+          ---
+          
+          ### 📦 Agent Artifacts
+          
+          All agent documents (BRD, Architecture, Implementation Summary, Test Results) are available as workflow artifacts.
+          
+          ---
+          
+          > **Note:** This PR was auto-generated by AI Agents. Please review carefully before merging.
+          PR_EOF
+          
+          # Create the pull request
+          PR_URL=$(gh pr create \
+            --title "🚀 feat: $ISSUE_TITLE" \
+            --body-file /tmp/pr_body.md \
+            --base "${{ env.BASE_BRANCH }}" \
+            --head "$BRANCH_NAME" \
+            --label "${{ env.PR_LABELS }}")
+          
+          echo "PR created: $PR_URL"
+          PR_NUMBER=$(echo "$PR_URL" | grep -oE '[0-9]+$')
+          echo "PR_NUMBER=$PR_NUMBER" >> $GITHUB_OUTPUT
+          echo "PR_URL=$PR_URL" >> $GITHUB_OUTPUT
+          
+          # Add comment to the original issue
+          gh issue comment $ISSUE_NUMBER --body "🎉 **Automated PR Created!**
+          
+          A pull request has been automatically created to address this issue:
+          
+          **PR:** $PR_URL
+          
+          Please review the changes and merge if everything looks good."
+
+      - name: Request Copilot Review (Optional)
+        if: steps.create-pr.outputs.PR_NUMBER != ''
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          PR_NUMBER=${{ steps.create-pr.outputs.PR_NUMBER }}
+          echo "Requesting Copilot review for PR #$PR_NUMBER..."
+          
+          # Try to request Copilot review
+          gh pr edit $PR_NUMBER --add-reviewer @copilot || \
+            echo "Note: Could not add Copilot as reviewer - this may require manual review setup"
+
+      - name: Handle Failure - Comment on Issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          ISSUE_NUMBER=${{ github.event.issue.number || inputs.issue-number }}
+          
+          gh issue comment $ISSUE_NUMBER --body "❌ **Automated PR Creation Failed**
+          
+          The workflow to automatically create a PR for this issue has failed.
+          
+          **Workflow Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          
+          Please check the workflow logs and consider implementing this feature manually.
+          
+          You can also try:
+          1. Removing and re-adding the \`${{ env.LABEL_NAME }}\` label to retry
+          2. Providing more details in the issue description
+          3. Implementing the feature manually"

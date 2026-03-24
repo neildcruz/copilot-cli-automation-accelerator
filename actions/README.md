@@ -59,7 +59,10 @@ Choose the workflow that fits your needs:
 2. **[code-review.yml](#code-reviewyml)** - Built-in code review agent
 3. **[security-analysis.yml](#security-analysisyml)** - Built-in security scanner
 4. **[documentation.yml](#documentationyml)** - Built-in documentation generator
-5. **[Custom Agents](#custom-agent-workflows)** - Use your own agents from `.copilot-agents/`
+5. **[auto-heal-deploy.yml](#auto-heal-deployyml)** - Build, deploy, and auto-heal with AI-powered failure analysis
+6. **[auto-update-unit-tests.yml](#auto-update-unit-testsyml)** - Run tests with coverage analysis and AI-driven test generation
+7. **[automate-pr.yml](#automate-pryml)** - Multi-agent issue-to-PR automation (BRD, Architect, Engineer agents)
+8. **[Custom Agents](#custom-agent-workflows)** - Use your own agents from `.copilot-agents/`
 
 ---
 
@@ -177,6 +180,195 @@ cd your-project/
 ```
 
 **See [CUSTOM-AGENTS.md](../CUSTOM-AGENTS.md) for complete guide.**
+
+---
+
+## auto-heal-deploy.yml
+
+Reusable build, deploy, and auto-heal workflow for Azure Container Apps. On deployment failure, it captures logs, generates an AI-powered root cause analysis via Copilot CLI, and creates a GitHub issue assigned to `@copilot` for automated remediation.
+
+### Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `container-app-name` | Name of the Azure Container App to deploy to | Yes | — |
+| `image-name` | Docker image name (without registry prefix) | Yes | — |
+| `resource-group` | Azure resource group for the Container App | No | Falls back to `AZURE_RESOURCE_GROUP` secret |
+| `registry` | Container registry URL | No | Falls back to `AZURE_CONTAINER_REGISTRY` secret |
+
+### Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `AZURE_CONTAINER_REGISTRY` | Container registry URL |
+| `REGISTRY_USERNAME` | Registry login username |
+| `REGISTRY_PASSWORD` | Registry login password |
+| `AZURE_RESOURCE_GROUP` | Azure resource group |
+| `AZURE_CREDENTIALS` | Azure service principal credentials |
+| `GH_TOKEN` | GitHub token for issue creation |
+| `COPILOT_GITHUB_TOKEN` | Token for Copilot CLI authentication |
+
+### Usage
+
+```yaml
+name: Deploy My App
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  tests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npm test
+
+  deploy:
+    needs: tests
+    uses: ./.github/workflows/auto-heal-deploy.yml
+    with:
+      container-app-name: my-service
+      image-name: my-service-image
+    secrets: inherit
+```
+
+### What Happens on Failure
+
+1. Deployment logs are captured (Docker build output, Azure Container App logs, app status)
+2. Copilot CLI analyzes the logs and identifies root cause
+3. A GitHub issue is created with the AI analysis, suggested fix, and full logs
+4. `@copilot` is assigned to the issue for automated remediation
+
+---
+
+## auto-update-unit-tests.yml
+
+Reusable unit test and coverage workflow for Python projects. Runs pytest with coverage measurement and, when coverage falls below the threshold, uses Copilot CLI to analyze gaps and create a GitHub issue with suggested test code assigned to `@copilot`.
+
+### Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `python-version` | Python version to use | No | `3.11` |
+| `working-directory` | Directory containing source and test files | No | `src` |
+| `requirements-file` | Path to requirements.txt (relative to repo root) | No | `src/requirements.txt` |
+| `test-file` | Test file or directory to run (relative to working-directory) | No | `test_app.py` |
+| `source-module` | Source module name for coverage measurement | No | `app` |
+| `coverage-threshold` | Minimum required coverage percentage | No | `90` |
+
+### Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `GH_TOKEN` | GitHub token for issue creation |
+| `COPILOT_GITHUB_TOKEN` | Token for Copilot CLI authentication |
+
+### Usage
+
+```yaml
+name: Test and Coverage
+
+on:
+  pull_request:
+    branches: [main]
+
+jobs:
+  unit-tests:
+    uses: ./.github/workflows/auto-update-unit-tests.yml
+    with:
+      python-version: "3.12"
+      working-directory: "myapp"
+      test-file: "tests/"
+      source-module: "myapp"
+      coverage-threshold: 80
+    secrets: inherit
+```
+
+### What Happens When Coverage Is Low
+
+1. Test results and coverage reports are uploaded as artifacts
+2. A PR comment is posted with test results (on pull requests)
+3. If coverage is below the threshold, Copilot CLI analyzes the source code and tests
+4. A GitHub issue is created with specific uncovered areas, suggested test code, and acceptance criteria
+5. `@copilot` is assigned to implement the missing tests
+
+---
+
+## automate-pr.yml
+
+Reusable multi-agent workflow that automates the full lifecycle from GitHub issue to pull request. When triggered (by label, manual dispatch, or another workflow), it runs three AI agents in sequence — BRD, Architect, and Engineer — to generate requirements, plan the architecture, implement the feature, optionally run tests, and open a PR.
+
+### Inputs
+
+| Input | Description | Required | Default |
+|-------|-------------|----------|---------|
+| `label-name` | Issue label that triggers the automation | No | `automate-pr` |
+| `brd-agent-file` | Path to the BRD agent prompt file | No | `.github/agents/brd.agent.md` |
+| `architect-agent-file` | Path to the Architect agent prompt file | No | `.github/agents/architect.agent.md` |
+| `engineer-agent-file` | Path to the Engineer agent prompt file | No | `.github/agents/engineer.agent.md` |
+| `working-directory` | Directory containing source and test files | No | `src` |
+| `requirements-file` | Path to requirements.txt (relative to repo root) | No | `src/requirements.txt` |
+| `test-file` | Test file or directory to run (relative to working-directory) | No | `test_app.py` |
+| `source-module` | Source module name for coverage measurement | No | `app` |
+| `base-branch` | Base branch for feature branch and PR target | No | `main` |
+| `run-tests` | Whether to run unit tests after implementation | No | `true` |
+| `artifact-retention-days` | Number of days to retain workflow artifacts | No | `30` |
+| `pr-labels` | Comma-separated labels to apply to the created PR | No | `automated,enhancement` |
+
+### Secrets
+
+| Secret | Description |
+|--------|-------------|
+| `GH_TOKEN` | GitHub token for issue/PR operations and pushing branches |
+| `COPILOT_GITHUB_TOKEN` | Token for Copilot CLI authentication |
+
+### Usage
+
+#### As a reusable workflow (called from another workflow)
+
+```yaml
+name: Issue to PR Automation
+
+on:
+  issues:
+    types: [labeled]
+
+jobs:
+  automate:
+    uses: ./.github/workflows/automate-pr.yml
+    with:
+      label-name: "automate-pr"
+      working-directory: "myapp"
+      requirements-file: "myapp/requirements.txt"
+      test-file: "tests/"
+      source-module: "myapp"
+      base-branch: "develop"
+    secrets: inherit
+```
+
+#### Standalone (triggered by issue label)
+
+The workflow also triggers directly when the configured label is added to an issue — no wrapper workflow needed. Just copy `automate-pr.yml` into `.github/workflows/` and add the `automate-pr` label to any issue.
+
+#### Manual trigger
+
+Use `workflow_dispatch` to run against a specific issue number:
+
+```yaml
+# Trigger via GitHub UI or CLI:
+gh workflow run automate-pr.yml -f issue-number=42
+```
+
+### What Happens
+
+1. **BRD Agent** reads the issue and generates a Business Requirements Document
+2. **Architect Agent** analyzes the BRD and produces an architecture and task plan
+3. **Engineer Agent** implements the feature using Copilot CLI with full tool access
+4. Unit tests are run (if `run-tests` is enabled), results captured in artifacts
+5. Changes are committed, pushed to a feature branch, and a PR is opened linking the issue
+6. Copilot is optionally requested as a reviewer on the PR
+7. On failure, a diagnostic comment is posted on the issue
 
 ---
 
