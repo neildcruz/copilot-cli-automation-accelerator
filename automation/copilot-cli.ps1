@@ -1513,7 +1513,19 @@ function Install-AgentToRepository {
     }
     
     $agentFileName = Split-Path -Leaf $AgentFile
-    $targetDir = Join-Path (Get-Location) ".github" "agents"
+    
+    # Find the git repository root so the agent is installed where Copilot CLI expects it
+    $repoRoot = Get-Location
+    try {
+        $gitRoot = (git rev-parse --show-toplevel 2>$null)
+        if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($gitRoot)) {
+            $repoRoot = $gitRoot
+        }
+    } catch {
+        Write-Log "Could not determine git root, using current directory"
+    }
+    
+    $targetDir = Join-Path $repoRoot ".github" "agents"
     $targetFile = Join-Path $targetDir $agentFileName
     
     if (Test-Path $targetFile) {
@@ -2667,13 +2679,17 @@ try {
         if ($builtInConfig) {
             Write-Host "Using built-in agent: $Agent" -ForegroundColor Cyan
             
-            # Load the agent's properties file if it exists
+            # Load the agent's properties file if it exists (overrides default config)
             if ($builtInConfig.PropertiesFile) {
-                $Config = $builtInConfig.PropertiesFile
+                # Reset config-loaded values so agent's config takes precedence
+                $PromptFile = ""
+                $AgentFile = ""
+                $Prompt = ""
+                Load-Config -ConfigFile $builtInConfig.PropertiesFile
             }
             
-            # Set prompt files if not already set
-            if ([string]::IsNullOrEmpty($PromptFile) -and $builtInConfig.UserPromptFile) {
+            # Override prompt file with the agent's own prompt (agent takes precedence)
+            if ($builtInConfig.UserPromptFile) {
                 $PromptFile = $builtInConfig.UserPromptFile
             }
             
@@ -2804,11 +2820,30 @@ try {
         exit 1
     }
     
-    # Print current working directory
-    $currentDir = Get-Location
-    $originalDir = $currentDir  # Store original directory to revert back later
-    Write-Host "Working directory: $currentDir" -ForegroundColor Cyan
-    Write-Log "Current working directory: $currentDir"
+    # Resolve working directory: prefer explicit -WorkingDirectory, then git repo root, then cwd
+    $originalDir = Get-Location
+    if ($WorkingDirectory -ne ".") {
+        Write-Log "Changing to explicit working directory: $WorkingDirectory"
+        if (-not (Test-Path $WorkingDirectory)) {
+            throw "Working directory '$WorkingDirectory' does not exist"
+        }
+        Set-Location $WorkingDirectory
+        Write-Host "Working directory: $(Get-Location) (explicit)" -ForegroundColor Cyan
+    } else {
+        # Auto-detect git repository root so Copilot CLI can access the full project
+        try {
+            $gitRoot = (git rev-parse --show-toplevel 2>$null)
+            if ($LASTEXITCODE -eq 0 -and -not [string]::IsNullOrEmpty($gitRoot)) {
+                Set-Location $gitRoot
+                Write-Host "Working directory: $(Get-Location) (git root)" -ForegroundColor Cyan
+            } else {
+                Write-Host "Working directory: $(Get-Location)" -ForegroundColor Cyan
+            }
+        } catch {
+            Write-Host "Working directory: $(Get-Location)" -ForegroundColor Cyan
+        }
+    }
+    Write-Log "Current working directory: $(Get-Location)"
     
     # Check dependencies
     Test-Dependencies
@@ -2816,17 +2851,6 @@ try {
     # Validate MCP configuration if provided
     if (-not [string]::IsNullOrEmpty($McpConfig)) {
         Test-McpConfig -Config $McpConfig
-    }
-    
-    # Change to working directory
-    if ($WorkingDirectory -ne ".") {
-        Write-Log "Changing to working directory: $WorkingDirectory"
-        if (-not (Test-Path $WorkingDirectory)) {
-            throw "Working directory '$WorkingDirectory' does not exist"
-        }
-        Set-Location $WorkingDirectory
-        $newDir = Get-Location
-        Write-Host "Changed working directory to: $newDir" -ForegroundColor Cyan
     }
     
     # Build command
@@ -2876,7 +2900,7 @@ try {
             if ($process.ExitCode -eq 0) {
                 Write-Host "Copilot CLI execution completed successfully" -ForegroundColor Green
                 # Restore original working directory
-                if ($WorkingDirectory -ne "." -and $originalDir) {
+                if ($originalDir -and (Get-Location).Path -ne $originalDir.Path) {
                     Set-Location $originalDir
                     Write-Host "Restored working directory to: $originalDir" -ForegroundColor Cyan
                     Write-Log "Restored working directory to: $originalDir"

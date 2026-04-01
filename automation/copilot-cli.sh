@@ -2600,13 +2600,18 @@ if [[ -n "$AGENT" ]]; then
     if get_builtin_agent_config "$AGENT"; then
         echo "Using built-in agent: $AGENT"
         
-        # Load the agent's properties file if it exists
+        # Load the agent's properties file if it exists (overrides default config)
         if [[ -n "$BUILTIN_AGENT_PROPS" ]]; then
+            # Reset config-loaded values so agent's config takes precedence
+            PROMPT_FILE=""
+            AGENT_FILE=""
+            PROMPT=""
             CONFIG_FILE="$BUILTIN_AGENT_PROPS"
+            load_config "$CONFIG_FILE"
         fi
         
-        # Set prompt files if not already set
-        if [[ -z "$PROMPT_FILE" ]] && [[ -n "$BUILTIN_AGENT_USER_PROMPT" ]]; then
+        # Override prompt file with the agent's own prompt (agent takes precedence)
+        if [[ -n "$BUILTIN_AGENT_USER_PROMPT" ]]; then
             PROMPT_FILE="$BUILTIN_AGENT_USER_PROMPT"
         fi
         

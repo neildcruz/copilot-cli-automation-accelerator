@@ -1,0 +1,427 @@
+name: Build, Deploy, and Auto-Heal
+
+on:
+  # Reusable workflow - can be called from other workflows
+  workflow_call:
+    inputs:
+      container-app-name:
+        description: "Name of the Azure Container App to deploy to"
+        required: true
+        type: string
+      resource-group:
+        description: "Azure resource group for the Container App"
+        required: false
+        type: string
+      image-name:
+        description: "Docker image name (without registry prefix)"
+        required: true
+        type: string
+      registry:
+        description: "Container registry URL"
+        required: false
+        type: string
+    secrets:
+      AZURE_CONTAINER_REGISTRY:
+        required: true
+      REGISTRY_USERNAME:
+        required: true
+      REGISTRY_PASSWORD:
+        required: true
+      AZURE_RESOURCE_GROUP:
+        required: true
+      AZURE_CREDENTIALS:
+        required: true
+      GH_TOKEN:
+        required: true
+      COPILOT_GITHUB_TOKEN:
+        required: true
+
+  # Allow manual trigger
+  workflow_dispatch:
+    inputs:
+      container-app-name:
+        description: "Name of the Azure Container App to deploy to"
+        required: true
+        type: string
+      resource-group:
+        description: "Azure resource group for the Container App"
+        required: false
+        type: string
+      image-name:
+        description: "Docker image name (without registry prefix)"
+        required: true
+        type: string
+
+env:
+  AZURE_CONTAINER_REGISTRY: ${{ inputs.registry || secrets.AZURE_CONTAINER_REGISTRY }}
+  REGISTRY_USERNAME: ${{ secrets.REGISTRY_USERNAME }}
+  REGISTRY_PASSWORD: ${{ secrets.REGISTRY_PASSWORD }}
+  CONTAINER_APP_NAME: ${{ inputs.container-app-name }}
+  RESOURCE_GROUP: ${{ inputs.resource-group || secrets.AZURE_RESOURCE_GROUP }}
+  IMAGE_NAME: ${{ inputs.image-name }}
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      actions: read
+    outputs:
+      deployment-status: ${{ steps.deploy.outcome }}
+      build-status: ${{ steps.build.outcome }}
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
+
+      - name: Login to Azure Container Registry
+        id: acr-login
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ env.AZURE_CONTAINER_REGISTRY }}
+          username: ${{ env.REGISTRY_USERNAME }}
+          password: ${{ env.REGISTRY_PASSWORD }}
+
+      - name: Login to Azure
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Build and push Docker image
+        id: build
+        run: |
+          # Build and capture output for failure analysis
+          docker buildx build \
+            --push \
+            --tag ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --tag ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:latest \
+            --cache-from type=gha \
+            --cache-to type=gha,mode=max \
+            . 2>&1 | tee /tmp/build-output.txt
+          
+          # Check if build succeeded
+          if [ ${PIPESTATUS[0]} -ne 0 ]; then
+            echo "BUILD_ERROR<<EOF" >> $GITHUB_OUTPUT
+            cat /tmp/build-output.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Deploy to Azure Container Apps
+        id: deploy
+        continue-on-error: true
+        run: |
+          # Deploy and capture output for failure analysis
+          az containerapp update \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --image ${{ env.AZURE_CONTAINER_REGISTRY }}/${{ env.IMAGE_NAME }}:${{ github.sha }} \
+            --set-env-vars "COMMIT_SHA=${{ github.sha }}" \
+            2>&1 | tee /tmp/deploy-output.txt
+          
+          DEPLOY_EXIT_CODE=${PIPESTATUS[0]}
+          if [ $DEPLOY_EXIT_CODE -ne 0 ]; then
+            echo "DEPLOY_ERROR<<EOF" >> $GITHUB_OUTPUT
+            cat /tmp/deploy-output.txt >> $GITHUB_OUTPUT
+            echo "EOF" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: Check deploy status and capture error
+        id: check-deploy
+        if: steps.deploy.outcome == 'failure'
+        run: |
+          echo "DEPLOY_FAILED=true" >> $GITHUB_OUTPUT
+          echo "Deploy step failed with outcome: ${{ steps.deploy.outcome }}"
+          exit 1
+
+      - name: Capture deployment logs on failure
+        if: failure()
+        id: capture-logs
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "=== DEPLOYMENT FAILURE DETECTED ===" >> deployment-logs.txt
+          echo "Timestamp: $(date -u +"%Y-%m-%dT%H:%M:%SZ")" >> deployment-logs.txt
+          echo "Commit SHA: ${{ github.sha }}" >> deployment-logs.txt
+          echo "Branch: ${{ github.ref_name }}" >> deployment-logs.txt
+          echo "Actor: ${{ github.actor }}" >> deployment-logs.txt
+          echo "Workflow Run ID: ${{ github.run_id }}" >> deployment-logs.txt
+          echo "Workflow Run URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> deployment-logs.txt
+          echo "" >> deployment-logs.txt
+          
+          # Capture step outcomes
+          echo "=== STEP OUTCOMES ===" >> deployment-logs.txt
+          echo "Build step outcome: ${{ steps.build.outcome }}" >> deployment-logs.txt
+          echo "Deploy step outcome: ${{ steps.deploy.outcome }}" >> deployment-logs.txt
+          echo "ACR Login outcome: ${{ steps.acr-login.outcome }}" >> deployment-logs.txt
+          echo "" >> deployment-logs.txt
+          
+          # Capture build error output if available
+          echo "=== DOCKER BUILD OUTPUT ===" >> deployment-logs.txt
+          if [ -f /tmp/build-output.txt ]; then
+            cat /tmp/build-output.txt >> deployment-logs.txt
+          else
+            echo "Build output not available" >> deployment-logs.txt
+          fi
+          echo "" >> deployment-logs.txt
+          
+          # Capture deploy error output if available
+          echo "=== DEPLOY OUTPUT ===" >> deployment-logs.txt
+          if [ -f /tmp/deploy-output.txt ]; then
+            cat /tmp/deploy-output.txt >> deployment-logs.txt
+          else
+            echo "Deploy output not available" >> deployment-logs.txt
+          fi
+          echo "" >> deployment-logs.txt
+          
+          echo "=== AZURE CONTAINER LOGS ===" >> deployment-logs.txt
+          az containerapp logs show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --tail 100 2>&1 >> deployment-logs.txt || echo "Could not fetch container logs" >> deployment-logs.txt
+          
+          echo "" >> deployment-logs.txt
+          echo "=== CONTAINER APP STATUS ===" >> deployment-logs.txt
+          az containerapp show \
+            --name ${{ env.CONTAINER_APP_NAME }} \
+            --resource-group ${{ env.RESOURCE_GROUP }} \
+            --query "{provisioningState:properties.provisioningState, runningStatus:properties.runningStatus, latestRevisionName:properties.latestRevisionName}" \
+            -o json 2>&1 >> deployment-logs.txt || echo "Could not fetch container status" >> deployment-logs.txt
+          
+          # Store logs as artifact for the auto-heal job
+          echo "DEPLOYMENT_LOGS<<EOF" >> $GITHUB_OUTPUT
+          cat deployment-logs.txt >> $GITHUB_OUTPUT
+          echo "EOF" >> $GITHUB_OUTPUT
+
+      - name: Upload failure logs artifact
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: deployment-failure-logs
+          path: deployment-logs.txt
+          retention-days: 30
+
+  # Auto-healing job - creates GitHub issue with AI-generated summary
+  auto-heal:
+    needs: build-and-deploy
+    if: failure()
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      contents: read
+      
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Download failure logs
+        uses: actions/download-artifact@v4
+        with:
+          name: deployment-failure-logs
+          path: ./logs
+
+      - name: Install Copilot CLI
+        run: |
+          curl -fsSL https://gh.io/copilot-install | bash
+          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+
+      - name: Generate AI Summary of Deployment Failure
+        id: ai-summary
+        env:
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          # Read full logs
+          LOGS=$(cat ./logs/deployment-logs.txt)
+          
+          echo "=== Logs to analyze ==="
+          echo "$LOGS"
+          echo "======================="
+          
+          # Build prompt
+          cat > /tmp/prompt.txt << 'PROMPT_END'
+          You are analyzing a deployment failure for a GitHub Actions CI/CD pipeline that deploys to Azure Container Apps.
+          
+          Analyze the logs below and provide your response in this EXACT format:
+          
+          ISSUE_TITLE: <A short, descriptive title for the GitHub issue (max 80 chars)>
+          
+          ## Summary
+          <Brief summary of what went wrong>
+          
+          ## Root Cause
+          <The root cause if identifiable>
+          
+          ## Suggested Fix
+          <Specific suggested fixes>
+          
+          Be concise but actionable.
+          
+          PROMPT_END
+          
+          echo "" >> /tmp/prompt.txt
+          echo "=== DEPLOYMENT LOGS ===" >> /tmp/prompt.txt
+          echo "$LOGS" >> /tmp/prompt.txt
+          
+          echo "Generating AI analysis with Copilot CLI..."
+          copilot --version || echo "Version check failed"
+          
+          # Run copilot and capture output
+          if AI_RESPONSE=$(copilot -p "$(cat /tmp/prompt.txt)" --allow-all-tools 2>&1); then
+            echo "Copilot analysis succeeded"
+            
+            # Extract title from response (line starting with ISSUE_TITLE:)
+            ISSUE_TITLE=$(echo "$AI_RESPONSE" | grep -m1 "^ISSUE_TITLE:" | sed 's/^ISSUE_TITLE:[[:space:]]*//' | head -c 80)
+            
+            # Remove the ISSUE_TITLE line from the analysis
+            AI_ANALYSIS=$(echo "$AI_RESPONSE" | grep -v "^ISSUE_TITLE:")
+            
+            # Default title if not found
+            if [ -z "$ISSUE_TITLE" ]; then
+              ISSUE_TITLE="Deployment Failed: Build/Deploy Error"
+            fi
+          else
+            echo "Copilot analysis failed with exit code: $?"
+            echo "Output was: $AI_RESPONSE"
+            ISSUE_TITLE="Deployment Failed: Pipeline Error"
+            AI_ANALYSIS="## Automated Failure Analysis
+            
+          **Note:** Copilot CLI analysis encountered an issue.
+          
+          ### Logs Preview
+          \`\`\`
+          $(head -100 ./logs/deployment-logs.txt)
+          \`\`\`"
+          fi
+          
+          echo "=== AI Analysis Result ==="
+          echo "Title: $ISSUE_TITLE"
+          echo "$AI_ANALYSIS"
+          echo "=========================="
+          
+          # Save outputs to files
+          echo "$AI_ANALYSIS" > /tmp/ai_analysis.txt
+          echo "$ISSUE_TITLE" > /tmp/issue_title.txt
+
+      - name: Create GitHub Issue via Copilot CLI
+        id: copilot-issue
+        continue-on-error: true
+        env:
+          # GH_TOKEN for gh CLI commands (needs repo access)
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          # GITHUB_TOKEN for Copilot CLI authentication
+          COPILOT_GITHUB_TOKEN: ${{ secrets.COPILOT_GITHUB_TOKEN }}
+        run: |
+          # Read the AI analysis and logs
+          AI_ANALYSIS=$(cat /tmp/ai_analysis.txt 2>/dev/null || echo "Analysis not available")
+          LOGS=$(cat ./logs/deployment-logs.txt 2>/dev/null | head -100)
+          
+          # Build the prompt
+          cat > /tmp/copilot_prompt.txt << 'PROMPT_EOF'
+          Create a GitHub issue in this repository for a deployment pipeline failure.
+          
+          Please create the issue with:
+          1. A descriptive title starting with 🔴
+          2. Labels: bug, deployment, automated
+          3. A well-formatted body with the analysis and logs below
+          4. After creating the issue, assign the Copilot coding agent to it using: gh issue edit <number> --add-assignee @copilot
+             IMPORTANT: Use @copilot with the @ symbol, not just "copilot"
+          
+          PROMPT_EOF
+          
+          # Append context
+          echo "" >> /tmp/copilot_prompt.txt
+          echo "=== CONTEXT ===" >> /tmp/copilot_prompt.txt
+          echo "Workflow Run ID: ${{ github.run_id }}" >> /tmp/copilot_prompt.txt
+          echo "Repository: ${{ github.repository }}" >> /tmp/copilot_prompt.txt
+          echo "Branch: ${{ github.ref_name }}" >> /tmp/copilot_prompt.txt
+          echo "Commit: ${{ github.sha }}" >> /tmp/copilot_prompt.txt
+          echo "Actor: ${{ github.actor }}" >> /tmp/copilot_prompt.txt
+          echo "" >> /tmp/copilot_prompt.txt
+          echo "=== AI ANALYSIS ===" >> /tmp/copilot_prompt.txt
+          cat /tmp/ai_analysis.txt >> /tmp/copilot_prompt.txt 2>/dev/null || echo "Not available" >> /tmp/copilot_prompt.txt
+          echo "" >> /tmp/copilot_prompt.txt
+          echo "=== DEPLOYMENT LOGS ===" >> /tmp/copilot_prompt.txt
+          cat ./logs/deployment-logs.txt >> /tmp/copilot_prompt.txt 2>/dev/null | head -100 || echo "Not available" >> /tmp/copilot_prompt.txt
+          
+          # Let Copilot CLI create the issue with all its tools
+          echo "Asking Copilot CLI to create the GitHub issue..."
+          PROMPT=$(cat /tmp/copilot_prompt.txt)
+          copilot -p "$PROMPT" --allow-all-tools
+
+      # Fallback: Manual issue creation if Copilot CLI fails
+      - name: Fallback - Create GitHub Issue Manually
+        if: steps.copilot-issue.outcome == 'failure'
+        env:
+          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+        run: |
+          echo "Copilot CLI failed to create issue, falling back to manual creation..."
+          
+          # Create issue body using heredoc
+          cat > /tmp/issue_body.md << 'ISSUE_EOF'
+          ## 🚨 Deployment Pipeline Failure
+
+          **Workflow Run:** [${{ github.run_id }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})
+          **Triggered by:** @${{ github.actor }}
+          **Branch:** `${{ github.ref_name }}`
+          **Commit:** [`${{ github.sha }}`](${{ github.server_url }}/${{ github.repository }}/commit/${{ github.sha }})
+
+          ---
+
+          ## 🤖 AI-Generated Analysis
+
+          ISSUE_EOF
+          
+          # Append AI analysis
+          cat /tmp/ai_analysis.txt >> /tmp/issue_body.md 2>/dev/null || echo "AI analysis not available" >> /tmp/issue_body.md
+          
+          cat >> /tmp/issue_body.md << 'ISSUE_EOF2'
+
+          ---
+
+          ## 📋 Full Deployment Logs
+
+          <details>
+          <summary>Click to expand logs</summary>
+
+          ```
+          ISSUE_EOF2
+          
+          cat ./logs/deployment-logs.txt >> /tmp/issue_body.md
+          
+          cat >> /tmp/issue_body.md << 'ISSUE_EOF3'
+          ```
+
+          </details>
+
+          ---
+
+          ## ✅ Next Steps
+
+          - [ ] Review the AI analysis above
+          - [ ] Identify and fix the root cause
+          - [ ] Push a fix to trigger a new deployment
+          - [ ] Close this issue once resolved
+          ISSUE_EOF3
+
+          # Get the AI-generated title
+          ISSUE_TITLE=$(cat /tmp/issue_title.txt 2>/dev/null || echo "Deployment Failed")
+          echo "Using issue title: $ISSUE_TITLE"
+
+          # Create issue
+          ISSUE_URL=$(gh issue create \
+            --title "🔴 $ISSUE_TITLE" \
+            --body-file /tmp/issue_body.md \
+            --label "bug,deployment,automated")
+          
+          echo "Issue created: $ISSUE_URL"
+          ISSUE_NUMBER=$(echo "$ISSUE_URL" | grep -oE '[0-9]+$')
+          echo "Issue number: $ISSUE_NUMBER"
+          
+          # Assign Copilot to the issue
+          echo "Assigning @copilot to issue #$ISSUE_NUMBER..."
+          gh issue edit $ISSUE_NUMBER --add-assignee @copilot || \
+            echo "Note: Could not assign @copilot - you can manually assign from the issue page"
