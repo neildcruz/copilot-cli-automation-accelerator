@@ -13,7 +13,7 @@ UPDATE=false
 BRANCH="main"
 REPOSITORY="neildcruz/copilot-cli-automation-accelerator"
 VERBOSE=false
-SKIP_EXAMPLES=true
+SKIP_EXAMPLES=false
 GITHUB_TOKEN="${GITHUB_TOKEN:-${GH_TOKEN:-}}"
 
 # Color functions for output

@@ -237,6 +237,24 @@ EXAMPLES:
 EOF
 }
 
+# Function to resolve file paths relative to script directory
+resolve_file_path() {
+    local file_path="$1"
+    
+    if [[ -z "$file_path" ]]; then
+        echo "$file_path"
+        return
+    fi
+    
+    # If the path doesn't contain a path separator, resolve relative to script directory
+    if [[ "$file_path" != */* ]] && [[ "$file_path" != *\\* ]]; then
+        echo "${SCRIPT_DIR}/${file_path}"
+        return
+    fi
+    
+    echo "$file_path"
+}
+
 # Function to log messages
 log() {
     if [[ "$VERBOSE" == "true" ]]; then
@@ -553,13 +571,13 @@ get_prompt_list() {
     
     echo "Fetching prompt list from: $repo" >&2
     
-    local auth_header=""
+    local curl_args=(curl -fsSL)
     if [[ -n "$GH_TOKEN" ]]; then
-        auth_header="-H \"Authorization: token $GH_TOKEN\""
+        curl_args+=(-H "Authorization: token $GH_TOKEN")
     fi
     
     local response
-    if response=$(eval curl -fsSL $auth_header "$api_url" 2>/dev/null); then
+    if response=$("${curl_args[@]}" "$api_url" 2>/dev/null); then
         echo "$response" | grep -o '"name": "[^"]*\.prompt\.md"' | sed 's/"name": "//g; s/\.prompt\.md"//g'
     else
         echo "Error: Failed to list prompts from $repo" >&2
